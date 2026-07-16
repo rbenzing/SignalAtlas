@@ -11,6 +11,7 @@
     <PackageReference Include="coverlet.collector" Version="6.0.4" />
     <!-- Pin to match the Persistence project and silence MSB3277 (a transitive pulls EF 10.0.4). -->
     <PackageReference Include="Microsoft.EntityFrameworkCore.Relational" Version="10.0.9" />
+    <PackageReference Include="Microsoft.AspNetCore.Mvc.Testing" Version="10.0.0" />
     <PackageReference Include="Microsoft.NET.Test.Sdk" Version="17.14.1" />
     <PackageReference Include="Testcontainers.PostgreSql" Version="4.13.0" />
     <PackageReference Include="xunit" Version="2.9.3" />
@@ -22,6 +23,7 @@
   </ItemGroup>
 
   <ItemGroup>
+    <ProjectReference Include="..\..\src\SignalAtlas.Api\SignalAtlas.Api.csproj" />
     <ProjectReference Include="..\..\src\SignalAtlas.Domain\SignalAtlas.Domain.csproj" />
     <ProjectReference Include="..\..\src\SignalAtlas.Persistence\SignalAtlas.Persistence.csproj" />
   </ItemGroup>

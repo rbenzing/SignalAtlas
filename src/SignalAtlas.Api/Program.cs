@@ -181,6 +181,8 @@ app.UseExceptionHandler();
 app.UseStatusCodePages();
 
 app.UseRouting();
+// WebSockets middleware for the browser HackRF IQ ingress (/ingest/iq).
+app.UseWebSockets();
 app.UseRateLimiter();
 // Conservative response security headers on every response (SPEC §4.6/§4.7 safe defaults).
 app.UseMiddleware<SecurityHeadersMiddleware>();
@@ -466,6 +468,9 @@ api.MapGet("/spectrum/coverage", (ISpectrumBuffer buffer, ISignalRepository sign
 // AuthorizationGateFilter — hub auth follows the single-operator posture (SPEC §4.7, loopback bind)
 // and is an upgrade point (add token auth when the gate is upgraded to real RBAC).
 app.MapHub<LiveHub>("/hub/live");
+
+// Binary WebSocket IQ ingress for a browser-owned HackRF (SPEC §4.10). Un-gated, like /hub/live.
+app.MapIqIngress();
 
 // Liveness probe (SPEC §5.5 NFR-R2): 200 whenever the process is up. Ungated.
 app.MapGet("/health", () => Results.Ok(new { status = "ok" }));
