@@ -110,14 +110,17 @@ public static class IqIngressEndpoint
 
     private static async Task CloseGracefullyAsync(WebSocket socket, CancellationToken ct)
     {
-        // A cancelled token would make CloseAsync throw immediately; fall back to
+        // A cancelled token would make CloseOutputAsync throw immediately; fall back to
         // CancellationToken.None so a graceful close is still attempted on client-initiated
-        // disconnect / request-abort.
+        // disconnect / request-abort. CloseOutputAsync only sends our close frame — it never
+        // blocks waiting for the peer's Close echo, so a misbehaving/idle client (e.g. one that
+        // sent a non-text or invalid-config first frame and then went quiet) can't pin this
+        // request open indefinitely.
         var closeCt = ct.IsCancellationRequested ? CancellationToken.None : ct;
         try
         {
             if (socket.State == WebSocketState.Open)
-                await socket.CloseAsync(WebSocketCloseStatus.NormalClosure, "done", closeCt);
+                await socket.CloseOutputAsync(WebSocketCloseStatus.NormalClosure, "done", closeCt);
             else if (socket.State == WebSocketState.CloseReceived)
                 await socket.CloseOutputAsync(WebSocketCloseStatus.NormalClosure, "done", closeCt);
         }

@@ -84,4 +84,35 @@ public class IqIngressEndpointTests(WebApplicationFactory<Program> factory)
         await closeTask; // rethrows if CloseAsync faulted — must not throw.
         Assert.Equal(WebSocketState.Closed, ws.State);
     }
+
+    [Fact]
+    public async Task Streaming_InvalidFirstFrame_ServerClosesPromptly()
+    {
+        // Regression test: a non-text (or unparseable-config) first frame hits the early-exit
+        // `return;` before any pipeline starts, landing in the finally's Open-state branch of
+        // CloseGracefullyAsync. That branch used to call the blocking socket.CloseAsync, which
+        // waits for the peer's Close echo. A client that sends garbage and then goes idle
+        // (never replying with its own Close) would pin the request open indefinitely, since
+        // ctx.RequestAborted only fires on an actual disconnect. The fix switched that branch to
+        // the send-only CloseOutputAsync, so the server must push its Close frame promptly
+        // without waiting on us — proven here by never sending a Close from the client and still
+        // observing one arrive quickly.
+        var app = factory.WithWebHostBuilder(b => { });
+        var wsClient = app.Server.CreateWebSocketClient();
+        var uri = new UriBuilder(app.Server.BaseAddress) { Scheme = "ws", Path = "/ingest/iq" }.Uri;
+        using var ws = await wsClient.ConnectAsync(uri, CancellationToken.None);
+
+        // First frame is binary, not the expected text config frame — triggers the early-exit
+        // path. The client deliberately never sends a Close frame of its own.
+        var garbage = new byte[] { 1, 2, 3, 4 };
+        await ws.SendAsync(garbage, WebSocketMessageType.Binary, true, CancellationToken.None);
+
+        var buffer = new byte[1024];
+        var receiveTask = ws.ReceiveAsync(buffer, CancellationToken.None);
+        var completed = await Task.WhenAny(receiveTask, Task.Delay(TimeSpan.FromSeconds(5)));
+
+        Assert.Same(receiveTask, completed);
+        var result = await receiveTask;
+        Assert.Equal(WebSocketMessageType.Close, result.MessageType);
+    }
 }
