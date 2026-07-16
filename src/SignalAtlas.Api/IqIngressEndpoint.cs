@@ -36,34 +36,39 @@ public static class IqIngressEndpoint
 
             using var socket = await ctx.WebSockets.AcceptWebSocketAsync();
             var ct = ctx.RequestAborted;
+            var logger = ctx.RequestServices.GetRequiredService<ILoggerFactory>().CreateLogger("IqIngress");
 
-            // First message must be the text config frame.
-            var (kind, payload) = await ReceiveAsync(socket, ct);
-            if (kind != WebSocketMessageType.Text)
-                return;
-            var config = ParseConfig(payload);
-            if (config is null || config.SamplesPerBlock <= 0)
-                return;
+            // Declared before the try so the finally can always reach them for cleanup, even when
+            // one of the early-exit paths below (non-text/invalid-config/immediate-close) returns
+            // before a pipeline is ever started.
+            BrowserUploadSampleSource? source = null;
+            Task? runTask = null;
 
-            var source = new BrowserUploadSampleSource(ChannelCapacity, config.SamplesPerBlock);
-            var pipeline = BuildPipeline(ctx.RequestServices, config.CollectorId ?? "web-hackrf-1");
-            var runTask = Task.Run(() => pipeline.Run(source, ct), ct);
-
-            long centerHz = config.CenterFreqHz;
-            int rateHz = config.SampleRateHz;
+            // Everything after AcceptWebSocketAsync — including the first ReceiveAsync — lives in
+            // ONE try/finally so every exit path (bad first frame, immediate close, normal loop
+            // close, or an abrupt disconnect) completes the close handshake exactly once.
             try
             {
+                // First message must be the text config frame.
+                var (kind, payload) = await ReceiveAsync(socket, ct);
+                if (kind != WebSocketMessageType.Text)
+                    return;
+                var config = ParseConfig(payload);
+                if (config is null || config.SamplesPerBlock <= 0)
+                    return;
+
+                source = new BrowserUploadSampleSource(ChannelCapacity, config.SamplesPerBlock);
+                var pipeline = BuildPipeline(ctx.RequestServices, config.CollectorId ?? "web-hackrf-1");
+                runTask = Task.Run(() => pipeline.Run(source, ct), ct);
+
+                long centerHz = config.CenterFreqHz;
+                int rateHz = config.SampleRateHz;
+
                 while (!ct.IsCancellationRequested)
                 {
                     var (msgKind, data) = await ReceiveAsync(socket, ct);
                     if (msgKind == WebSocketMessageType.Close)
-                    {
-                        // Complete the close handshake so the client's own CloseAsync/receive
-                        // observes a graceful shutdown rather than an aborted connection.
-                        if (socket.State == WebSocketState.CloseReceived)
-                            await socket.CloseAsync(WebSocketCloseStatus.NormalClosure, "closing", ct);
                         break;
-                    }
                     if (msgKind == WebSocketMessageType.Binary)
                     {
                         source.Enqueue(data, centerHz, rateHz);
@@ -83,10 +88,42 @@ public static class IqIngressEndpoint
             catch (WebSocketException) { /* abrupt close */ }
             finally
             {
-                source.Complete();
-                try { await runTask; } catch (OperationCanceledException) { }
+                source?.Complete();
+                if (runTask is not null)
+                {
+                    try { await runTask; }
+                    catch (OperationCanceledException) { }
+                    catch (Exception ex)
+                    {
+                        // Observe non-cancellation pipeline faults so they don't escape the finally
+                        // and mask whatever exit condition brought us here.
+                        logger.LogWarning(ex, "IQ ingest pipeline faulted");
+                    }
+                }
+
+                // Single graceful-close path for every exit above (early return, loop-break on
+                // Close, or a caught disconnect exception).
+                await CloseGracefullyAsync(socket, ct);
             }
         });
+    }
+
+    private static async Task CloseGracefullyAsync(WebSocket socket, CancellationToken ct)
+    {
+        // A cancelled token would make CloseAsync throw immediately; fall back to
+        // CancellationToken.None so a graceful close is still attempted on client-initiated
+        // disconnect / request-abort.
+        var closeCt = ct.IsCancellationRequested ? CancellationToken.None : ct;
+        try
+        {
+            if (socket.State == WebSocketState.Open)
+                await socket.CloseAsync(WebSocketCloseStatus.NormalClosure, "done", closeCt);
+            else if (socket.State == WebSocketState.CloseReceived)
+                await socket.CloseOutputAsync(WebSocketCloseStatus.NormalClosure, "done", closeCt);
+        }
+        catch (OperationCanceledException) { }
+        catch (WebSocketException) { }
+        catch (ObjectDisposedException) { }
     }
 
     private static IqConfig? ParseConfig(byte[] utf8)

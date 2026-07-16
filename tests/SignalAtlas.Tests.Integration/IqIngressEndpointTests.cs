@@ -61,4 +61,27 @@ public class IqIngressEndpointTests(WebApplicationFactory<Program> factory)
 
         await ws.CloseAsync(WebSocketCloseStatus.NormalClosure, "done", CancellationToken.None);
     }
+
+    [Fact]
+    public async Task Streaming_ImmediateClientClose_CompletesHandshakeGracefully()
+    {
+        // Regression test: previously the server's first ReceiveAsync (before any config frame)
+        // sat outside the try/finally, so an immediate client-initiated Close made the handler
+        // `return;` without ever sending a Close frame back. The client's own CloseAsync would
+        // then hang or throw (ObjectDisposedException/IOException) once `using var socket`
+        // disposed the connection. It must now complete cleanly because the whole handler body,
+        // including the first receive, is covered by the single finally that closes gracefully.
+        var app = factory.WithWebHostBuilder(b => { });
+        var wsClient = app.Server.CreateWebSocketClient();
+        var uri = new UriBuilder(app.Server.BaseAddress) { Scheme = "ws", Path = "/ingest/iq" }.Uri;
+        using var ws = await wsClient.ConnectAsync(uri, CancellationToken.None);
+
+        // Disconnect immediately — no config frame was ever sent.
+        var closeTask = ws.CloseAsync(WebSocketCloseStatus.NormalClosure, "bye", CancellationToken.None);
+        var completed = await Task.WhenAny(closeTask, Task.Delay(TimeSpan.FromSeconds(5)));
+
+        Assert.Same(closeTask, completed);
+        await closeTask; // rethrows if CloseAsync faulted — must not throw.
+        Assert.Equal(WebSocketState.Closed, ws.State);
+    }
 }
