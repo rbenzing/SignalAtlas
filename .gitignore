@@ -1,0 +1,102 @@
+###############################################################################
+# .NET / C#
+###############################################################################
+# Build output
+[Bb]in/
+[Oo]bj/
+[Oo]ut/
+publish/
+artifacts/
+*.dll
+*.pdb
+!**/wwwroot/**/*.dll   # keep any intentionally-shipped web assets
+
+# Visual Studio / Rider user & cache files
+.vs/
+.idea/
+*.user
+*.suo
+*.userosscache
+*.sln.docstates
+*.DotSettings.user
+_ReSharper*/
+*.[Rr]e[Ss]harper
+
+# Test / coverage output
+[Tt]est[Rr]esults/
+[Cc]overage/
+*.coverage
+*.coverage.json
+coverage.cobertura.xml
+coverage.opencover.xml
+*.trx
+*.received.*
+
+# NuGet
+*.nupkg
+*.snupkg
+.nuget/
+packages/
+!packages/build/
+
+# MSBuild / misc
+*.binlog
+msbuild.log
+*.tmp
+
+###############################################################################
+# Frontend (Node / Vite / React) — scoped under web/ and anywhere
+###############################################################################
+node_modules/
+dist/
+dist-ssr/
+.vite/
+*.tsbuildinfo
+
+# Package-manager logs & debug
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+.pnpm-store/
+
+# Lint / test caches
+.eslintcache
+.stylelintcache
+
+# Playwright
+playwright-report/
+playwright/.cache/
+test-results/
+
+# Local env files (keep committed examples)
+.env
+.env.*
+!.env.example
+
+###############################################################################
+# Editors — keep the shared project configs, ignore the rest
+###############################################################################
+.vscode/*
+!.vscode/launch.json
+!.vscode/tasks.json
+!.vscode/extensions.json
+!.vscode/settings.json
+*.code-workspace
+
+###############################################################################
+# OS
+###############################################################################
+.DS_Store
+Thumbs.db
+Desktop.ini
+
+###############################################################################
+# Tooling / agents
+###############################################################################
+# Ignore agent state under .claude/ but keep the committed CLAUDE.md guide.
+.claude/*
+!.claude/CLAUDE.md
+scratchpad/
+# Subagent-driven-development progress ledger (scratch).
+.superpowers/

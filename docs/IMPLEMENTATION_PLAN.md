@@ -1,0 +1,91 @@
+# Signal Atlas — Implementation Plan
+
+**Derives from:** [SPEC.md](SPEC.md) v3.3 (contract) · [plan.md](plan.md) (vision)
+**Method:** TDD Red → Green → Refactor. No production code without a failing test first.
+**Status:** M0 in progress.
+
+---
+
+## 0. Toolchain (verified 2026-07-07)
+
+| Tool | Version | Notes |
+|---|---|---|
+| .NET SDK | 10.0.301 | Backend + all C# tests |
+| Node | 18.20.8 | Frontend (Vite/React) |
+| npm | 10.8.2 | |
+| git | 2.54.0 | |
+| **Docker** | **absent** | **Blocks Testcontainers** — Postgres/Timescale integration, encryption-at-rest, and DB round-trip tests are written but marked `[Trait("Category","NeedsDocker")]` and skipped in CI until a Docker host exists (see §Deviations). |
+
+---
+
+## 1. Architecture Decisions (implementation-level, refine SPEC §16 ADRs)
+
+- **Language/runtime:** C# / .NET 10 for the entire pipeline (Collector → Processing → Classification → Decode → Correlation → Geospatial → Behavior → Anomaly → Api). Addresses review risk **R5/A1**: DSP performance (NFR-T2, 20 MS/s) is validated by a benchmark spike in M1 **before** the DSP architecture is locked; if managed code misses the budget, the `ISignalProcessor` seam allows a native (VOLK/FFTW P/Invoke) implementation behind the same contract.
+- **Determinism (P5):** all randomness injected via an `IRandomSource`; no `DateTime.Now`/`Guid.NewGuid()` in the deterministic core — time comes from `IClock`, IDs from deterministic content hashing where SPEC §7.8 requires.
+- **Hardware seam (SPEC §4.1):** `ISampleSource` / `IPositionSource`. Real impls (`HackRfSampleSource`, `UbloxPositionSource`) land in M8; `FileSampleSource` + `SyntheticSampleSource` from M0 give zero-hardware CI.
+- **Persistence:** EF Core (forward-only migrations, SPEC §15) over PostgreSQL + TimescaleDB. Repository interfaces in Domain; an in-memory repo backs unit/contract tests so the pipeline runs without a DB.
+- **Auth (SPEC §4.7):** `IAuthorizationGate`, default `SingleOperatorPassThroughGate`. A contract test asserts **every** mapped route passes through it (review G-J / route-gated CI gate).
+- **API:** ASP.NET Core Minimal API `/api/v1`, RFC 7807 problem-details, SignalR hub `/hub/live`. gRPC deferred until protos are specified (closes review R11 by explicit deferral, not a dangling reference).
+
+## 2. Solution Layout (SPEC §12.1)
+
+```
+SignalAtlas.sln
+src/
+  SignalAtlas.Domain          # entities, value objects, interfaces, evidence — no deps
+  SignalAtlas.Collector       # scan scheduler, ISampleSource consumers
+  SignalAtlas.Processing      # DSP: FFT, occupancy, features
+  SignalAtlas.Classification  # IClassifier rule scorer
+  SignalAtlas.Decode          # IProtocolDecoder registry, IDeviceResolver
+  SignalAtlas.Correlation     # emitter/device assignment
+  SignalAtlas.Geospatial      # centroid + uncertainty
+  SignalAtlas.Behavior        # behavior profiles
+  SignalAtlas.Anomaly         # rule detectors
+  SignalAtlas.Persistence     # EF Core, repositories, migrations
+  SignalAtlas.Api             # Minimal API, SignalR, auth gate
+web/                          # React + TS + Vite + MUI + MapLibre
+tests/
+  SignalAtlas.Tests.Unit
+  SignalAtlas.Tests.Contract
+  SignalAtlas.Tests.Integration   # NeedsDocker
+  SignalAtlas.Tests.Golden
+  SignalAtlas.Tests.E2E           # Playwright (web)
+```
+
+## 3. Milestone → ticket → test map
+
+Authoritative ticket source is **SPEC §11**. Each ticket = one RED test (or a small triangulated set) → GREEN → REFACTOR. Milestones ship in order M0→M13; M0–M7 = MVP, M8 hardware+ops, M9–M13 = AI phases.
+
+**M0 (walking skeleton) — active:**
+
+| Ticket | Test (RED) | Runnable now? |
+|---|---|---|
+| M0-T1 FileSampleSource | deterministic replay: same bytes → identical ordered blocks | yes (unit) |
+| M0-T2 Collector/dwell | one Observation per dwell from synthetic source; UTC + monotonic seq | yes (unit) |
+| M0-T3 receive-only | transmit path never initialized (spy on ISampleSource) | yes (unit) |
+| M0-T4 auth gate | every mapped API route passes through IAuthorizationGate | yes (contract) |
+| M0-T5 GET /signals | golden JSON shape, envelope `{schemaVersion,correlationId,payload}` | yes (contract) |
+| M0-T6 persist/read-back | encrypted ephemeral Timescale round-trip | **NeedsDocker (skip)** |
+| M0-T7 cold-copy | data files reveal no plaintext identifiers (NFR-S1) | **NeedsDocker (skip)** |
+| M0-T8 React list | Playwright renders signal list | scaffold; E2E deferred |
+| M0-T9 CI | pipeline fails on a red test | yes (workflow) |
+
+Milestones M1–M13 expand from SPEC §8 component test lists + §11 backlog; detailed tickets are pulled into this table as each milestone opens.
+
+## 4. Delegation model (yeschef brigade)
+
+- **scout** — locate/trace when a change spans files.
+- **line-cook** — implement one well-specified ticket (RED test already named) in parallel; returns compact diff.
+- **expeditor** — run full suite + coverage gate before a milestone is declared done.
+
+Parallelism rule: only dispatch independent tickets concurrently (no shared file/contract). M0-T1/T2/T3 (Collector+Domain) are one cohesive slice built together; M0-T4/T5 (Api) are a second slice; they can run in parallel after the solution scaffold exists.
+
+## 5. Deviations from SPEC (tracked)
+
+1. **Docker-dependent tests skipped locally.** M0-T6/T7 and all `SignalAtlas.Tests.Integration` carry `Category=NeedsDocker` and are excluded from the local run and the fast CI lane; a Docker CI lane runs them. This preserves the SPEC §12.4 gate intent without a Docker host on the dev machine.
+2. **gRPC deferred** until protos are specified (review R11) — not in M0 scope; REST+SignalR only.
+3. **Frontend E2E deferred** past M0 scaffold (Playwright browser download + web build) — the React list view is scaffolded and unit-checkable; the Playwright E2E gate opens at M0 close on a machine with browsers.
+
+## 6. Definition of Done per milestone (SPEC §14)
+
+All Red-Green items checked; CI green incl. new tests; coverage gate met on `/Processing /Classification /Decode /Correlation`; demoable outcome runs from clean checkout; no verdict lacks evidence (P4/P6 contract green); relevant NFRs measured. M0–M12 DoD never depends on Claude/M13.

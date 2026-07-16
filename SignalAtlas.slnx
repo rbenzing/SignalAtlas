@@ -1,0 +1,26 @@
+<Solution>
+  <Folder Name="/src/">
+    <Project Path="src/SignalAtlas.Analyst/SignalAtlas.Analyst.csproj" />
+    <Project Path="src/SignalAtlas.Anomaly/SignalAtlas.Anomaly.csproj" />
+    <Project Path="src/SignalAtlas.Api/SignalAtlas.Api.csproj" />
+    <Project Path="src/SignalAtlas.Behavior/SignalAtlas.Behavior.csproj" />
+    <Project Path="src/SignalAtlas.Classification/SignalAtlas.Classification.csproj" />
+    <Project Path="src/SignalAtlas.Collector/SignalAtlas.Collector.csproj" />
+    <Project Path="src/SignalAtlas.Correlation/SignalAtlas.Correlation.csproj" />
+    <Project Path="src/SignalAtlas.Decode/SignalAtlas.Decode.csproj" />
+    <Project Path="src/SignalAtlas.Domain/SignalAtlas.Domain.csproj" />
+    <Project Path="src/SignalAtlas.Enhancement/SignalAtlas.Enhancement.csproj" />
+    <Project Path="src/SignalAtlas.Fingerprint/SignalAtlas.Fingerprint.csproj" />
+    <Project Path="src/SignalAtlas.Geospatial/SignalAtlas.Geospatial.csproj" />
+    <Project Path="src/SignalAtlas.Ml/SignalAtlas.Ml.csproj" />
+    <Project Path="src/SignalAtlas.Persistence/SignalAtlas.Persistence.csproj" />
+    <Project Path="src/SignalAtlas.Pipeline/SignalAtlas.Pipeline.csproj" />
+    <Project Path="src/SignalAtlas.Processing/SignalAtlas.Processing.csproj" />
+  </Folder>
+  <Folder Name="/tests/">
+    <Project Path="tests/SignalAtlas.Tests.Contract/SignalAtlas.Tests.Contract.csproj" />
+    <Project Path="tests/SignalAtlas.Tests.Integration/SignalAtlas.Tests.Integration.csproj" />
+    <Project Path="tests/SignalAtlas.Tests.Persistence/SignalAtlas.Tests.Persistence.csproj" />
+    <Project Path="tests/SignalAtlas.Tests.Unit/SignalAtlas.Tests.Unit.csproj" />
+  </Folder>
+</Solution>

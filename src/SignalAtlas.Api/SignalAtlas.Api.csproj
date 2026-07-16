@@ -1,0 +1,31 @@
+<Project Sdk="Microsoft.NET.Sdk.Web">
+
+  <ItemGroup>
+    <PackageReference Include="prometheus-net.AspNetCore" Version="8.2.1" />
+    <!-- Pin EF Relational to match Persistence and silence MSB3277 (Npgsql 10.0.2 pulls 10.0.4). -->
+    <PackageReference Include="Microsoft.EntityFrameworkCore.Relational" Version="10.0.9" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\SignalAtlas.Domain\SignalAtlas.Domain.csproj" />
+    <ProjectReference Include="..\SignalAtlas.Analyst\SignalAtlas.Analyst.csproj" />
+    <ProjectReference Include="..\SignalAtlas.Enhancement\SignalAtlas.Enhancement.csproj" />
+    <ProjectReference Include="..\SignalAtlas.Collector\SignalAtlas.Collector.csproj" />
+    <ProjectReference Include="..\SignalAtlas.Decode\SignalAtlas.Decode.csproj" />
+    <ProjectReference Include="..\SignalAtlas.Anomaly\SignalAtlas.Anomaly.csproj" />
+    <ProjectReference Include="..\SignalAtlas.Fingerprint\SignalAtlas.Fingerprint.csproj" />
+    <ProjectReference Include="..\SignalAtlas.Processing\SignalAtlas.Processing.csproj" />
+    <ProjectReference Include="..\SignalAtlas.Classification\SignalAtlas.Classification.csproj" />
+    <ProjectReference Include="..\SignalAtlas.Ml\SignalAtlas.Ml.csproj" />
+    <ProjectReference Include="..\SignalAtlas.Correlation\SignalAtlas.Correlation.csproj" />
+    <ProjectReference Include="..\SignalAtlas.Pipeline\SignalAtlas.Pipeline.csproj" />
+    <ProjectReference Include="..\SignalAtlas.Persistence\SignalAtlas.Persistence.csproj" />
+  </ItemGroup>
+
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+  </PropertyGroup>
+
+</Project>

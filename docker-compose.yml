@@ -1,0 +1,35 @@
+# OPTIONAL — the edge node runs fully offline without Docker; this bundle is for a persistent
+# Postgres/Timescale deployment (SPEC §4.3/§15). Without a connection string the API falls back
+# to in-memory seeded repositories, so Docker is never required to run Signal Atlas.
+
+services:
+  db:
+    image: timescale/timescaledb:latest-pg16
+    environment:
+      POSTGRES_PASSWORD: signalatlas
+      POSTGRES_DB: signalatlas
+    volumes:
+      - signalatlas-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d signalatlas"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  api:
+    build:
+      context: .
+      dockerfile: src/SignalAtlas.Api/Dockerfile
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      ConnectionStrings__SignalAtlas: "Host=db;Database=signalatlas;Username=postgres;Password=signalatlas"
+    ports:
+      - "8080:8080"
+    # OPTIONAL field-hardware: to give the container a USB-connected HackRF, uncomment:
+    # devices:
+    #   - "/dev/bus/usb:/dev/bus/usb"
+
+volumes:
+  signalatlas-data:

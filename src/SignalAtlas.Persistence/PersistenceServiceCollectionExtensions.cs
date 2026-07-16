@@ -1,0 +1,100 @@
+using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Configuration;
+using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Hosting;
+using SignalAtlas.Domain;
+
+namespace SignalAtlas.Persistence;
+
+/// <summary>
+/// Docker-OPTIONAL persistence wiring (SPEC §4.3). If a "SignalAtlas" connection string is
+/// configured → PostgreSQL/TimescaleDB via EF Core (schema by <c>EnsureCreated</c>, seeded at
+/// startup). Otherwise → the offline-first in-memory seeded repos, no database required.
+/// </summary>
+public static class PersistenceServiceCollectionExtensions
+{
+    public static IServiceCollection AddSignalAtlasPersistence(this IServiceCollection services, IConfiguration config)
+    {
+        var connectionString = config.GetConnectionString("SignalAtlas");
+
+        // Spectrum waterfall buffer (SPEC §8.2): always in-memory (there is no PSD-frame DB table);
+        // seeded with synthetic frames so the Spectrum views render offline (§4.3). The live pipeline
+        // pushes real frames on top of the seeds (bounded ring, NFR-C3).
+        services.AddSingleton<ISpectrumBuffer>(_ =>
+        {
+            var buffer = new InMemorySpectrumBuffer();
+            foreach (var frame in SpectrumSeed.Frames())
+                buffer.Push(frame);
+            return buffer;
+        });
+
+        if (!string.IsNullOrWhiteSpace(connectionString))
+        {
+            services.AddDbContext<SignalAtlasDbContext>(opt => opt.UseNpgsql(connectionString));
+
+            services.AddScoped<IObservationRepository, EfObservationRepository>();
+            // Signal read + write share one instance: register the concrete once, forward both interfaces.
+            services.AddScoped<EfSignalRepository>();
+            services.AddScoped<ISignalRepository>(sp => sp.GetRequiredService<EfSignalRepository>());
+            services.AddScoped<ISignalWriter>(sp => sp.GetRequiredService<EfSignalRepository>());
+            services.AddScoped<IDeviceRepository, EfDeviceRepository>();
+            services.AddScoped<IEmitterRepository, EfEmitterRepository>();
+            // Alert read + write share one instance: register the concrete once, forward both interfaces.
+            services.AddScoped<EfAlertRepository>();
+            services.AddScoped<IAlertRepository>(sp => sp.GetRequiredService<EfAlertRepository>());
+            services.AddScoped<IAlertWriter>(sp => sp.GetRequiredService<EfAlertRepository>());
+            services.AddScoped<IAuditLog, EfAuditLog>();
+            // Collect-now / analyze-later stores (SPEC §7.9, M13).
+            services.AddScoped<ISessionRepository, EfSessionRepository>();
+            services.AddScoped<IAnalysisRunRepository, EfAnalysisRunRepository>();
+            services.AddScoped<IEnrichmentRepository, EfEnrichmentRepository>();
+
+            // EnsureCreated + Timescale hypertables/retention + seed-if-empty at host start (scoped context).
+            services.AddHostedService<DatabaseInitializer>();
+        }
+        else
+        {
+            services.AddSingleton<IObservationRepository, InMemoryObservationRepository>();
+            // Signal read + write share one instance: register the concrete once, forward both interfaces.
+            services.AddSingleton<InMemorySignalRepository>();
+            services.AddSingleton<ISignalRepository>(sp => sp.GetRequiredService<InMemorySignalRepository>());
+            services.AddSingleton<ISignalWriter>(sp => sp.GetRequiredService<InMemorySignalRepository>());
+            services.AddSingleton<IDeviceRepository, InMemoryDeviceRepository>();
+            services.AddSingleton<IEmitterRepository, InMemoryEmitterRepository>();
+            // Alert read + write share one instance: register the concrete once, forward both interfaces.
+            services.AddSingleton<InMemoryAlertRepository>();
+            services.AddSingleton<IAlertRepository>(sp => sp.GetRequiredService<InMemoryAlertRepository>());
+            services.AddSingleton<IAlertWriter>(sp => sp.GetRequiredService<InMemoryAlertRepository>());
+            services.AddSingleton<IAuditLog, InMemoryAuditLog>();
+            // Collect-now / analyze-later stores (SPEC §7.9, M13): offline-first in-memory.
+            services.AddSingleton<ISessionRepository, InMemorySessionRepository>();
+            services.AddSingleton<IAnalysisRunRepository, InMemoryAnalysisRunRepository>();
+            services.AddSingleton<IEnrichmentRepository, InMemoryEnrichmentRepository>();
+        }
+
+        return services;
+    }
+}
+
+/// <summary>
+/// Applies the forward-only EF migrations, the Timescale hypertables/retention, then seeds demo
+/// rows at host startup (Npgsql path only). Migrations own the schema in production; the SQLite
+/// round-trip/integration tests build the SAME model directly via <c>EnsureCreated</c>.
+/// </summary>
+internal sealed class DatabaseInitializer(IServiceProvider services) : IHostedService
+{
+    public Task StartAsync(CancellationToken cancellationToken)
+    {
+        using var scope = services.CreateScope();
+        var db = scope.ServiceProvider.GetRequiredService<SignalAtlasDbContext>();
+        var resolver = scope.ServiceProvider.GetRequiredService<IDeviceResolver>();
+        var engine = scope.ServiceProvider.GetRequiredService<IAnomalyEngine>();
+
+        db.Database.Migrate();                  // forward-only Npgsql schema (composite time-PK hypertables).
+        TimescaleInitializer.Initialize(db);    // Postgres-only hypertables + retention; no-op on SQLite.
+        DatabaseSeeder.SeedIfEmpty(db, resolver, engine);
+        return Task.CompletedTask;
+    }
+
+    public Task StopAsync(CancellationToken cancellationToken) => Task.CompletedTask;
+}

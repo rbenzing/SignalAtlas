@@ -1,0 +1,68 @@
+Signal Atlas — Proprietary Software License
+Copyright (c) 2026 Russell Benzing. All Rights Reserved.
+
+================================================================================
+1. OWNERSHIP
+================================================================================
+Signal Atlas — including its source code, architecture, data models, algorithms,
+user-interface designs, documentation, and the underlying concept and design of a
+receive-only RF intelligence platform (collectively, the "Software") — is the
+exclusive property of Russell Benzing (the "Owner") and is protected by copyright,
+trade-secret, and other intellectual-property laws. The concept, methods, and
+design embodied in the Software are proprietary and confidential.
+
+No title to or ownership of the Software is transferred by possession of a copy.
+
+================================================================================
+2. GRANT (NONE BY DEFAULT)
+================================================================================
+No license or right to use, copy, modify, merge, publish, distribute, sublicense,
+sell, reverse engineer, or create derivative works of the Software is granted to
+any person or entity, except under a separate written agreement signed by the
+Owner. Absent such written permission, ALL RIGHTS ARE RESERVED and any of the
+foregoing acts is prohibited.
+
+================================================================================
+3. CONFIDENTIALITY
+================================================================================
+The Software and its non-public design, methods, and know-how are confidential.
+Any party granted access must not disclose them to third parties and must protect
+them with no less than reasonable care.
+
+================================================================================
+4. RESPONSIBLE & LAWFUL USE
+================================================================================
+Signal Atlas is designed as a RECEIVE-ONLY system. Any authorized use must:
+  (a) operate receive-only and never transmit;
+  (b) decode only device-identifying / control-plane metadata for device
+      determination, and never intercept, decrypt, or divulge the CONTENTS of
+      communications;
+  (c) comply with all applicable laws and regulations governing radio reception,
+      privacy, and communications interception in the operator's jurisdiction
+      (e.g., in the United States, the Wiretap Act 18 U.S.C. § 2511 and the
+      Communications Act § 605), which vary by jurisdiction.
+The Owner does not authorize, and disclaims all responsibility for, any unlawful
+or unauthorized use. Compliance is the sole responsibility of the operator.
+
+================================================================================
+5. NO WARRANTY
+================================================================================
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS
+FOR A PARTICULAR PURPOSE, AND NONINFRINGEMENT.
+
+================================================================================
+6. LIMITATION OF LIABILITY
+================================================================================
+IN NO EVENT SHALL THE OWNER BE LIABLE FOR ANY CLAIM, DAMAGES, OR OTHER LIABILITY,
+WHETHER IN AN ACTION OF CONTRACT, TORT, OR OTHERWISE, ARISING FROM, OUT OF, OR IN
+CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+
+================================================================================
+7. THIRD-PARTY COMPONENTS
+================================================================================
+The Software depends on third-party open-source components (e.g., .NET, React,
+MUI, MapLibre GL, Recharts), each licensed under its own terms. This license
+governs the Signal Atlas Software itself, not those components.
+
+For licensing inquiries, contact the Owner.

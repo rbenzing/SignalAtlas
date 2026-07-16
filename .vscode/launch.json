@@ -1,0 +1,51 @@
+{
+  "version": "0.2.0",
+  "configurations": [
+    {
+      "name": "API",
+      "type": "coreclr",
+      "request": "launch",
+      "preLaunchTask": "build",
+      "program": "${workspaceFolder}/src/SignalAtlas.Api/bin/Debug/net10.0/SignalAtlas.Api.dll",
+      "cwd": "${workspaceFolder}/src/SignalAtlas.Api",
+      "env": {
+        "ASPNETCORE_ENVIRONMENT": "Development",
+        "ASPNETCORE_URLS": "http://localhost:5285"
+      }
+    },
+    {
+      "name": "API (live ingestion)",
+      "type": "coreclr",
+      "request": "launch",
+      "preLaunchTask": "build",
+      "program": "${workspaceFolder}/src/SignalAtlas.Api/bin/Debug/net10.0/SignalAtlas.Api.dll",
+      "cwd": "${workspaceFolder}/src/SignalAtlas.Api",
+      "env": {
+        "ASPNETCORE_ENVIRONMENT": "Development",
+        "ASPNETCORE_URLS": "http://localhost:5285",
+        "Ingestion__Enabled": "true"
+      }
+    },
+    {
+      "name": "Web dev server",
+      "type": "node",
+      "request": "launch",
+      "program": "${workspaceFolder}/web/node_modules/vite/bin/vite.js",
+      "cwd": "${workspaceFolder}/web",
+      "console": "integratedTerminal",
+      "skipFiles": ["<node_internals>/**"],
+      "serverReadyAction": {
+        "pattern": "Local:\\s+(https?://\\S+)",
+        "uriFormat": "%s",
+        "action": "openExternally"
+      }
+    }
+  ],
+  "compounds": [
+    {
+      "name": "Full stack: API + Web",
+      "configurations": ["API", "Web dev server"],
+      "stopAll": true
+    }
+  ]
+}

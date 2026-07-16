@@ -1,0 +1,44 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  # Fast lane: everything that does not need a database. Blocks merge on any red test.
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '10.0.x'
+      - run: dotnet restore SignalAtlas.slnx
+      - run: dotnet build SignalAtlas.slnx --no-restore -c Release
+      - name: Test (excluding Docker-dependent)
+        run: >
+          dotnet test SignalAtlas.slnx --no-build -c Release
+          --filter "Category!=NeedsDocker"
+          --collect:"XPlat Code Coverage"
+      # Enforce SPEC §12.4: >=85% line coverage on the core pipeline projects.
+      - name: Coverage gate (>=85% line on core)
+        run: >
+          dotnet test tests/SignalAtlas.Tests.Unit -c Release
+          -p:CollectCoverage=true
+          "-p:Include=[SignalAtlas.Processing]*%2c[SignalAtlas.Classification]*%2c[SignalAtlas.Collector]*%2c[SignalAtlas.Decode]*%2c[SignalAtlas.Correlation]*%2c[SignalAtlas.Geospatial]*%2c[SignalAtlas.Behavior]*%2c[SignalAtlas.Anomaly]*%2c[SignalAtlas.Pipeline]*%2c[SignalAtlas.Ml]*%2c[SignalAtlas.Fingerprint]*%2c[SignalAtlas.Analyst]*%2c[SignalAtlas.Enhancement]*"
+          -p:Threshold=85 -p:ThresholdType=line -p:ThresholdStat=total
+
+  # Docker lane: Postgres/Timescale integration, encryption-at-rest (SPEC §12.4).
+  test-docker:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '10.0.x'
+      - run: dotnet restore SignalAtlas.slnx
+      - name: Test (Docker-dependent only)
+        run: >
+          dotnet test SignalAtlas.slnx -c Release
+          --filter "Category=NeedsDocker"
