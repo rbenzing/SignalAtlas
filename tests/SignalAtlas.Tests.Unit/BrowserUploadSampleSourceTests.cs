@@ -39,7 +39,7 @@ public class BrowserUploadSampleSourceTests
     }
 
     [Fact]
-    public void Enqueue_DropsRemainderShorterThanOneBlock()
+    public void Enqueue_DiscardsIncompletePartialBlockOnComplete()
     {
         var source = new BrowserUploadSampleSource(capacity: 8, samplesPerBlock: 2);
         // 3 bytes = 1.5 samples: not even one full 2-sample block → nothing enqueued.
@@ -47,6 +47,41 @@ public class BrowserUploadSampleSourceTests
         source.Complete();
 
         Assert.Empty(source.Blocks());
+    }
+
+    [Fact]
+    public void Enqueue_CarriesRemainderAcrossCalls()
+    {
+        var source = new BrowserUploadSampleSource(capacity: 8, samplesPerBlock: 2);
+        // First call: 3 bytes = 1.5 samples, not a full 2-sample block → 3 bytes carried over.
+        source.Enqueue(new byte[] { 1, 2, 3 }, 100, 1000);
+        // Second call: 1 more byte completes the carried-over block (4 bytes = one 2-sample block).
+        source.Enqueue(new byte[] { 4 }, 100, 1000);
+        source.Complete();
+
+        var block = Assert.Single(source.Blocks());
+        Assert.Equal(2, block.SampleCount);
+        Assert.Equal(1 / 128f, block.I[0], 5);
+        Assert.Equal(2 / 128f, block.Q[0], 5);
+        Assert.Equal(3 / 128f, block.I[1], 5);
+        Assert.Equal(4 / 128f, block.Q[1], 5);
+    }
+
+    [Fact]
+    public void Enqueue_DropsOldestBlocksWhenCapacityExceeded()
+    {
+        var source = new BrowserUploadSampleSource(capacity: 2, samplesPerBlock: 1);
+        source.Enqueue(new byte[] { 10, 0 }, 100, 1000);
+        source.Enqueue(new byte[] { 20, 0 }, 100, 1000);
+        source.Enqueue(new byte[] { 30, 0 }, 100, 1000);
+        source.Enqueue(new byte[] { 40, 0 }, 100, 1000);
+        source.Complete();
+
+        var blocks = source.Blocks().ToList();
+
+        Assert.Equal(2, blocks.Count);
+        Assert.Equal(30 / 128f, blocks[0].I[0], 5);
+        Assert.Equal(40 / 128f, blocks[1].I[0], 5);
     }
 
     [Fact]
