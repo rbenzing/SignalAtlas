@@ -25,6 +25,7 @@ import LightModeIcon from "@mui/icons-material/LightMode";
 import { useColorMode } from "../theme/ColorModeContext";
 import ConnectionDot from "./ConnectionDot";
 import SummaryChip from "./SummaryChip";
+import HackRfConnect from "./HackRfConnect";
 
 const DRAWER_WIDTH = 220;
 
@@ -75,6 +76,7 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
             Signal Atlas
           </Typography>
           <SummaryChip />
+          <HackRfConnect />
           <ConnectionDot />
           <IconButton onClick={toggle} aria-label="Toggle color mode">
             {mode === "dark" ? <LightModeIcon /> : <DarkModeIcon />}

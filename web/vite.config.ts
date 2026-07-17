@@ -13,6 +13,8 @@ export default defineConfig({
       "/api": { target: "http://localhost:5285", changeOrigin: true },
       // SignalR live hub — websockets need ws:true for the proxied upgrade.
       "/hub": { target: "http://localhost:5285", changeOrigin: true, ws: true },
+      // Browser WebUSB HackRF IQ ingress — websocket, needs ws:true for the upgrade.
+      "/ingest": { target: "http://localhost:5285", changeOrigin: true, ws: true },
     },
   },
 });
