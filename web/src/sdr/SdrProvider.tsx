@@ -1,4 +1,4 @@
-import { createContext, useCallback, useContext, useReducer, useRef } from "react";
+import { createContext, useCallback, useContext, useEffect, useReducer, useRef } from "react";
 import { HackRfDevice, type HackRfDeviceInfo } from "./hackrf";
 import { IqSocket, type IqStreamConfig } from "./iqSocket";
 
@@ -117,9 +117,20 @@ export function SdrProvider({ children }: { children: React.ReactNode }) {
   // Teardown closes/releases the device and socket and nulls the refs, but does NOT
   // dispatch and does NOT reset tuningRef — it must leave `state.tuning`/`tuningRef`
   // untouched so an error path doesn't silently lose the user's tuning selection.
+  //
+  // Detach the socket's handlers BEFORE closing it: an intentional teardown (disconnect(),
+  // or the mid-stream-error path below) must close the socket silently. Only a close/error
+  // event that fires while the handlers are still attached (i.e. NOT triggered by our own
+  // teardown) is "unexpected" and should surface an error — see startStreaming.
   const teardown = useCallback(async () => {
     try { await deviceRef.current?.disconnect(); } catch { /* ignore */ }
-    try { wsRef.current?.close(); } catch { /* ignore */ }
+    const ws = wsRef.current;
+    if (ws) {
+      ws.onopen = null;
+      ws.onclose = null;
+      ws.onerror = null;
+      try { ws.close(); } catch { /* ignore */ }
+    }
     deviceRef.current = null;
     wsRef.current = null;
     iqRef.current = null;
@@ -148,6 +159,25 @@ export function SdrProvider({ children }: { children: React.ReactNode }) {
       ws.onopen = () => { clearTimeout(timer); resolve(); };
       ws.onerror = () => { clearTimeout(timer); reject(new Error("IQ WebSocket failed to open.")); };
     });
+
+    // Persistent post-open handlers: a backend restart or network drop closes the socket
+    // without ever calling our own teardown(), which would otherwise leave the UI stuck at
+    // "streaming" with a dead spectrum (ws.send() on a closing/closed socket is a silent
+    // no-op, so nothing else would ever surface this). teardown() detaches these handlers
+    // before it closes the socket itself, so an INTENTIONAL disconnect()/mid-stream-error
+    // teardown never reaches this branch — only a genuinely unexpected close does.
+    // The `handled` flag guards against a double dispatch if both onerror and onclose fire
+    // for the same underlying failure (a common browser pattern for abnormal closures).
+    let handled = false;
+    const handleUnexpectedClose = () => {
+      if (handled) return;
+      handled = true;
+      void teardown();
+      dispatch({ type: "error", message: "IQ stream disconnected." });
+    };
+    ws.onclose = handleUnexpectedClose;
+    ws.onerror = handleUnexpectedClose;
+
     iq.sendConfig(configFrame(t));
 
     await dev.startRx(
@@ -158,12 +188,63 @@ export function SdrProvider({ children }: { children: React.ReactNode }) {
           dispatch({ type: "drops", drops: iq.drops });
         }
       },
-      (err) => {
-        if (err) dispatch({ type: "error", message: err.message });
+      async (err) => {
+        // A mid-stream device error (readLoop failure) must release the claimed USB
+        // interface + socket before surfacing the error, otherwise a later connect()
+        // overwrites deviceRef without releasing the old interface and reconnect fails
+        // until page reload. teardown() preserves tuningRef, so the user's tuning
+        // selection survives the error.
+        await teardown();
+        dispatch({ type: "error", message: err?.message ?? "HackRF stream ended." });
       },
     );
     dispatch({ type: "connected", info });
   };
+
+  // One-click silent reconnect (Spec §4.3/§9): if the browser already granted USB access to
+  // this HackRF in a previous session, navigator.usb.getDevices() returns it WITHOUT ever
+  // prompting the chooser, and HackRfDevice.adopt() opens it directly (vs. connect(), which
+  // calls requestDevice() and always prompts). Runs once on mount.
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const usb = (navigator as Navigator & { usb?: { getDevices(): Promise<any[]> } }).usb;
+      if (!usb?.getDevices) return; // WebUSB unsupported / not available in this browser
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      let devices: any[];
+      try {
+        devices = await usb.getDevices();
+      } catch {
+        return;
+      }
+      // Only adopt a previously-authorized HackRF (vendor 0x1d50, product 0x6089/0x604b).
+      const hackrf = devices.find(
+        (d) => d?.vendorId === 0x1d50 && (d?.productId === 0x6089 || d?.productId === 0x604b),
+      );
+      if (cancelled || !hackrf) return;
+      dispatch({ type: "requesting" });
+      try {
+        const dev = new HackRfDevice();
+        deviceRef.current = dev;
+        const info = await dev.adopt(hackrf);
+        if (cancelled) {
+          await teardown();
+          return;
+        }
+        await startStreaming(info, dev);
+      } catch (e) {
+        if (!cancelled) {
+          await teardown();
+          dispatch({ type: "error", message: (e as Error).message });
+        }
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   const connect = useCallback(async () => {
     dispatch({ type: "requesting" });
