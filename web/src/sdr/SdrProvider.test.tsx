@@ -112,10 +112,13 @@ describe("SdrProvider mid-stream error handling (Fix 1)", () => {
   it("tears down the device (releasing the USB interface) before surfacing the error", async () => {
     vi.stubGlobal("WebSocket", FakeWebSocket);
     hoisted.connectMock.mockResolvedValue({ boardId: 1, firmwareVersion: "1.0", serialNumber: "ABC123" });
-    // Mirrors the real HackRfDevice.startRx: it resolves immediately (readLoop runs in the
-    // background) and only later — asynchronously — reports a stream failure via onEnd.
+    // Capture onEnd so the test controls WHEN the mid-stream failure fires: assert "streaming"
+    // first, then trigger onEnd deterministically. (A setTimeout(0) race here was flaky — it
+    // could fire before the "streaming" assertion.) Mirrors the real startRx resolving
+    // immediately while the readLoop runs on in the background.
+    let capturedOnEnd: ((err?: Error) => void) | undefined;
     hoisted.startRxMock.mockImplementation((_onData: unknown, onEnd?: (err?: Error) => void) => {
-      setTimeout(() => onEnd?.(new Error("stream died")), 0);
+      capturedOnEnd = onEnd;
       return Promise.resolve();
     });
 
@@ -138,9 +141,10 @@ describe("SdrProvider mid-stream error handling (Fix 1)", () => {
     });
     expect(result.current.status).toBe("streaming");
 
-    // Let the scheduled onEnd(...) fire and its `await teardown()` resolve.
+    // Trigger the mid-stream failure deterministically and let its `await teardown()` resolve.
     await act(async () => {
-      await new Promise((resolve) => setTimeout(resolve, 10));
+      capturedOnEnd?.(new Error("stream died"));
+      await flush();
     });
 
     expect(result.current.status).toBe("error");
