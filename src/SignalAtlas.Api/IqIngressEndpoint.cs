@@ -169,7 +169,11 @@ public static class IqIngressEndpoint
             emitters: sp.GetService<IEmitterRepository>(),
             alerts: sp.GetService<IAlertWriter>(),
             spectrum: sp.GetService<ISpectrumBuffer>(),
-            notifier: notifier);
+            notifier: notifier,
+            demodulators: sp.GetServices<IDemodulator>(),
+            registry: sp.GetService<IDecoderRegistry>(),
+            resolver: sp.GetService<IDeviceResolver>(),
+            devices: sp.GetService<IDeviceRepository>());
     }
 
     private static async Task<(WebSocketMessageType Kind, byte[] Payload)> ReceiveAsync(

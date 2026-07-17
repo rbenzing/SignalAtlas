@@ -9,13 +9,17 @@ namespace SignalAtlas.Pipeline;
 /// pipeline — collect → PSD → features → classify → correlate → anomaly — persisting each
 /// observation (<see cref="IObservationRepository"/>) and signal (<see cref="ISignalWriter"/>).
 ///
-/// DECODE IS DEFERRED (SPEC §8.4): real IQ→frame demodulation is not built, so live mode does
-/// NOT decode frames or determine devices. Correlation therefore runs on RF features only —
-/// every <see cref="CorrelationInput"/> carries an EMPTY DecodedIdentifiers map, exercising the
-/// weighted RF-fallback path (SPEC §8.5). When an <see cref="IEmitterRepository"/>/<see cref="IAlertWriter"/>
-/// is supplied, correlated emitters are upserted and raised alerts appended (and existing emitters
-/// loaded at the start of a run so correlation is stateful, SPEC §7.8); emitter↔device links remain
-/// a follow-up. A run also returns emitters/alerts in its <see cref="IngestionResult"/>.
+/// DECODE IS OPTIONAL (SPEC §8.4): when <see cref="IDemodulator"/>s, an <see cref="IDecoderRegistry"/>,
+/// an <see cref="IDeviceResolver"/>, and an <see cref="IDeviceRepository"/> are all supplied (the live
+/// API wiring), the pipeline demodulates each block, decodes frames, and resolves/upserts/pushes the
+/// determined devices. When any of those deps are absent, the decode stage is a no-op and the pipeline
+/// stays an RF-only pass. Correlation always runs on RF features — every <see cref="CorrelationInput"/>
+/// carries an EMPTY DecodedIdentifiers map today, exercising the weighted RF-fallback path (SPEC §8.5);
+/// wiring decoded identifiers into correlation is a separate follow-up. When an
+/// <see cref="IEmitterRepository"/>/<see cref="IAlertWriter"/> is supplied, correlated emitters are
+/// upserted and raised alerts appended (and existing emitters loaded at the start of a run so
+/// correlation is stateful, SPEC §7.8); emitter↔device links remain a follow-up. A run also returns
+/// emitters/alerts in its <see cref="IngestionResult"/>.
 ///
 /// Deterministic (P5): same source bytes + same clock/position → identical result.
 /// </summary>
@@ -157,7 +161,7 @@ public sealed class IngestionPipeline
                 }
             }
 
-            // 4. Correlate on RF features ONLY — decode is deferred, so no decoded identifiers.
+            // 4. Correlate on RF features ONLY — decoded identifiers aren't wired into correlation yet.
             var input = new CorrelationInput(
                 Protocol: cls.Protocol,
                 CenterFreqHz: features.CenterFreqHz,
@@ -175,8 +179,9 @@ public sealed class IngestionPipeline
             _emitters?.Upsert(emitter);   // idempotent on the deterministic emitter id (SPEC §7.8).
             _notifier.EmitterUpdated(emitter);   // live push (SPEC §9.3 emitter.updated).
 
-            // 5. Anomaly — baseline derived purely from whether the emitter was already known
-            //    (device knowledge is absent in live mode, decode being deferred).
+            // 5. Anomaly — baseline derived purely from whether the emitter was already known.
+            //    KnownDevice stays false: emitter↔device linkage (correlating a determined device
+            //    back onto its RF emitter) is a separate follow-up, independent of the decode stage.
             var evt = new AnomalyEvent(
                 Time: obs.Time,
                 EmitterId: emitter.Id,

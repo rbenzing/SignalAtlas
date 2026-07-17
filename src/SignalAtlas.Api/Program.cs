@@ -7,6 +7,7 @@ using SignalAtlas.Enhancement;
 using SignalAtlas.Collector;
 using SignalAtlas.Decode;
 using SignalAtlas.Decode.Decoders;
+using SignalAtlas.Decode.Demodulators;
 using SignalAtlas.Domain;
 using SignalAtlas.Persistence;
 
@@ -94,6 +95,9 @@ builder.Services.AddSingleton<IProtocolDecoder, ZigbeeMacDecoder>();
 builder.Services.AddSingleton<IDecoderRegistry, DecoderRegistry>();
 builder.Services.AddSingleton<IOuiLookup, OuiLookup>();
 builder.Services.AddSingleton<IDeviceResolver, DeviceResolver>();
+
+// IQ→frame demodulators feeding the live decode stage (SPEC §8.4). ADS-B is the first.
+builder.Services.AddSingleton<IDemodulator, AdsBDemodulator>();
 
 // Edge signal-processing / classification / correlation / anomaly engines (SPEC §8.2/§8.3/§8.5/§8.8).
 // Registered here (the composition root) so the live ingestion pipeline can resolve them.

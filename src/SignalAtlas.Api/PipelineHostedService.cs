@@ -62,7 +62,11 @@ public sealed class PipelineHostedService(
             emitters: sp.GetService<IEmitterRepository>(),
             alerts: sp.GetService<IAlertWriter>(),
             spectrum: sp.GetService<ISpectrumBuffer>(),
-            notifier: sp.GetService<ILiveNotifier>());   // live push (SPEC §9.3); null-safe if unregistered.
+            notifier: sp.GetService<ILiveNotifier>(),   // live push (SPEC §9.3); null-safe if unregistered.
+            demodulators: sp.GetServices<IDemodulator>(),
+            registry: sp.GetService<IDecoderRegistry>(),
+            resolver: sp.GetService<IDeviceResolver>(),
+            devices: sp.GetService<IDeviceRepository>());
 
         // Honors the host stopping token (SPEC §5.5): a shutdown cancels the in-flight Run promptly and
         // disposes the source (the source enumerator's finally releases the device).
