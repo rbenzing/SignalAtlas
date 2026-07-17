@@ -85,6 +85,29 @@ public class BrowserUploadSampleSourceTests
     }
 
     [Fact]
+    public async Task Blocks_WaitsOnEmptyChannelThenYieldsLateArrivingData()
+    {
+        // The live path: the pipeline starts draining Blocks() BEFORE the browser has streamed any
+        // IQ, so WaitToReadAsync() returns a NOT-yet-completed ValueTask. Blocking on it must wait,
+        // not throw. (Regression guard: ValueTask.GetAwaiter().GetResult() on an incomplete op throws
+        // "The asynchronous operation has not completed." — the wait must go through .AsTask().)
+        var source = new BrowserUploadSampleSource(capacity: 8, samplesPerBlock: 1);
+
+        // Start draining while the channel is empty — Blocks() parks in the wait.
+        var drained = Task.Run(() => source.Blocks().ToList());
+        await Task.Delay(100); // ensure the drainer reached the empty-channel wait before we enqueue
+
+        source.Enqueue(new byte[] { 42, 0 }, 100, 1000);
+        source.Complete();
+
+        var finished = await Task.WhenAny(drained, Task.Delay(TimeSpan.FromSeconds(5)));
+        Assert.Same(drained, finished); // did not hang
+        var blocks = await drained;      // and did not throw
+        Assert.Single(blocks);
+        Assert.Equal(42 / 128f, blocks[0].I[0], 5);
+    }
+
+    [Fact]
     public void ExposesNoTransmitMember()
     {
         var members = typeof(BrowserUploadSampleSource).GetMembers()

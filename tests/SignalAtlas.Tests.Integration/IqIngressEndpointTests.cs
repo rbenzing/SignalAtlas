@@ -63,6 +63,55 @@ public class IqIngressEndpointTests(WebApplicationFactory<Program> factory)
     }
 
     [Fact]
+    public async Task Streaming_ConfigThenDelayThenIq_SurvivesEmptyChannelWait()
+    {
+        // Regression test (user-reported): after the config frame, the per-connection pipeline
+        // starts draining BrowserUploadSampleSource.Blocks() while the channel is still empty —
+        // exactly the real streaming timeline, where IQ arrives a beat after connect. The wait on
+        // the empty channel returns a not-yet-completed ValueTask; blocking on it incorrectly
+        // (without .AsTask()) threw "The asynchronous operation has not completed." and faulted the
+        // pipeline, so no frames ever flowed. Here we deliberately pause between config and the
+        // first IQ block and assert a spectrumFrame still arrives — i.e. the empty-channel wait
+        // parked instead of throwing.
+        var notifier = new CapturingNotifier();
+        var app = factory.WithWebHostBuilder(b =>
+            b.ConfigureTestServices(s =>
+            {
+                s.RemoveAll(typeof(ILiveNotifier));
+                s.AddSingleton<ILiveNotifier>(notifier);
+            }));
+
+        var wsClient = app.Server.CreateWebSocketClient();
+        var uri = new UriBuilder(app.Server.BaseAddress) { Scheme = "ws", Path = "/ingest/iq" }.Uri;
+        using var ws = await wsClient.ConnectAsync(uri, CancellationToken.None);
+
+        var config = JsonSerializer.Serialize(new
+        {
+            type = "config",
+            centerFreqHz = 433_920_000L,
+            sampleRateHz = 2_000_000,
+            samplesPerBlock = 8,
+            collectorId = "web-hackrf-test",
+        });
+        await ws.SendAsync(Encoding.UTF8.GetBytes(config), WebSocketMessageType.Text, true, CancellationToken.None);
+
+        // Pause so the pipeline is parked in the empty-channel wait before any IQ arrives.
+        await Task.Delay(300);
+        Assert.False(notifier.First.Task.IsFaulted, "pipeline faulted while waiting on the empty channel");
+
+        var iq = new byte[16];
+        for (int i = 0; i < iq.Length; i++) iq[i] = (byte)(i % 2 == 0 ? 100 : 50);
+        await ws.SendAsync(iq, WebSocketMessageType.Binary, true, CancellationToken.None);
+
+        var completed = await Task.WhenAny(notifier.First.Task, Task.Delay(TimeSpan.FromSeconds(5)));
+        Assert.Same(notifier.First.Task, completed);
+        var frame = await notifier.First.Task;
+        Assert.Equal(433_920_000, frame.CenterFreqHz);
+
+        await ws.CloseAsync(WebSocketCloseStatus.NormalClosure, "done", CancellationToken.None);
+    }
+
+    [Fact]
     public async Task Streaming_ImmediateClientClose_CompletesHandshakeGracefully()
     {
         // Regression test: previously the server's first ReceiveAsync (before any config frame)

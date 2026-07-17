@@ -83,7 +83,12 @@ public sealed class BrowserUploadSampleSource : ISampleSource
             bool hasData;
             try
             {
-                hasData = reader.WaitToReadAsync().GetAwaiter().GetResult();
+                // MUST go through .AsTask(): WaitToReadAsync() returns a ValueTask that is NOT
+                // complete when the channel is empty (the live path — the pipeline drains this
+                // before the browser has streamed any IQ). Calling GetResult() directly on an
+                // incomplete ValueTask throws "The asynchronous operation has not completed.";
+                // .AsTask() gives a Task that blocks until data arrives or the channel completes.
+                hasData = reader.WaitToReadAsync().AsTask().GetAwaiter().GetResult();
             }
             catch (OperationCanceledException)
             {
