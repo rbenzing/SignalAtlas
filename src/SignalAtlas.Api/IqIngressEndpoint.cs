@@ -135,12 +135,25 @@ public static class IqIngressEndpoint
         catch (JsonException) { return null; }
     }
 
+    // Cap the live spectrum broadcast so a continuous WebUSB stream (hundreds of frames/s) can't flood
+    // SignalR clients and freeze the browser. ~20 fps is smooth for a waterfall; only the live push is
+    // throttled — persisted artifacts and the REST spectrum buffer still see every frame.
+    private static readonly TimeSpan SpectrumPushInterval = TimeSpan.FromMilliseconds(50);
+
     // Mirrors PipelineHostedService's construction so every downstream artifact + SignalR event fans
     // out identically to file/synthetic ingestion.
-    private static IngestionPipeline BuildPipeline(IServiceProvider sp, string collectorId) =>
-        new(
+    private static IngestionPipeline BuildPipeline(IServiceProvider sp, string collectorId)
+    {
+        var clock = sp.GetService<IClock>() ?? new HostClock();
+        var liveNotifier = sp.GetService<ILiveNotifier>();
+        // Throttle only the high-rate spectrum push; other events still fan out unthrottled.
+        var notifier = liveNotifier is null
+            ? null
+            : new ThrottledSpectrumNotifier(liveNotifier, clock, SpectrumPushInterval);
+
+        return new IngestionPipeline(
             collectorId: collectorId,
-            clock: sp.GetService<IClock>() ?? new HostClock(),
+            clock: clock,
             position: sp.GetService<IPositionSource>() ?? new NoPositionSource(),
             processor: sp.GetRequiredService<ISignalProcessor>(),
             classifier: sp.GetRequiredService<IClassifier>(),
@@ -151,7 +164,8 @@ public static class IqIngressEndpoint
             emitters: sp.GetService<IEmitterRepository>(),
             alerts: sp.GetService<IAlertWriter>(),
             spectrum: sp.GetService<ISpectrumBuffer>(),
-            notifier: sp.GetService<ILiveNotifier>());
+            notifier: notifier);
+    }
 
     private static async Task<(WebSocketMessageType Kind, byte[] Payload)> ReceiveAsync(
         WebSocket socket, CancellationToken ct)
