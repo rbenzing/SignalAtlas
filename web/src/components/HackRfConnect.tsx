@@ -15,6 +15,7 @@ import GraphicEqIcon from "@mui/icons-material/GraphicEq";
 import TuneIcon from "@mui/icons-material/Tune";
 import { useSdr } from "../sdr/SdrProvider";
 import { useLive } from "../live/LiveProvider";
+import BandSelector from "./BandSelector";
 
 export default function HackRfConnect() {
   const sdr = useSdr();
@@ -65,6 +66,7 @@ export default function HackRfConnect() {
           label={scanning ? `Scanning · ${spectrumFps} fps · ${centerMhz} MHz` : "Scanning · no data"}
         />
       </Tooltip>
+      <BandSelector />
       <Tooltip title="Tuning">
         <IconButton size="small" onClick={(e) => setAnchor(e.currentTarget)} aria-label="HackRF tuning">
           <TuneIcon fontSize="small" />
