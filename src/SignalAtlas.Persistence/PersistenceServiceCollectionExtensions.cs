@@ -20,13 +20,21 @@ public static class PersistenceServiceCollectionExtensions
         // Spectrum waterfall buffer (SPEC §8.2): always in-memory (there is no PSD-frame DB table);
         // seeded with synthetic frames so the Spectrum views render offline (§4.3). The live pipeline
         // pushes real frames on top of the seeds (bounded ring, NFR-C3).
-        services.AddSingleton<ISpectrumBuffer>(_ =>
+        services.AddSingleton<InMemorySpectrumBuffer>(_ =>
         {
             var buffer = new InMemorySpectrumBuffer();
             foreach (var frame in SpectrumSeed.Frames())
                 buffer.Push(frame);
             return buffer;
         });
+        services.AddSingleton<ISpectrumBuffer>(sp => sp.GetRequiredService<InMemorySpectrumBuffer>());
+        // The buffer's seeded frames are demo data: cleared when a real device starts streaming.
+        services.AddSingleton<IDemoSeedStore>(sp => sp.GetRequiredService<InMemorySpectrumBuffer>());
+
+        // Live-session coordinator (always registered): the first WebUSB stream clears every
+        // IDemoSeedStore once, so the UI shows live data only. In DB mode the only IDemoSeedStore is
+        // the spectrum buffer (EF repos don't implement it), so a real database is never touched.
+        services.AddSingleton<ILiveSession, LiveSession>();
 
         if (!string.IsNullOrWhiteSpace(connectionString))
         {
@@ -59,12 +67,18 @@ public static class PersistenceServiceCollectionExtensions
             services.AddSingleton<InMemorySignalRepository>();
             services.AddSingleton<ISignalRepository>(sp => sp.GetRequiredService<InMemorySignalRepository>());
             services.AddSingleton<ISignalWriter>(sp => sp.GetRequiredService<InMemorySignalRepository>());
-            services.AddSingleton<IDeviceRepository, InMemoryDeviceRepository>();
-            services.AddSingleton<IEmitterRepository, InMemoryEmitterRepository>();
+            services.AddSingleton<IDemoSeedStore>(sp => sp.GetRequiredService<InMemorySignalRepository>());
+            services.AddSingleton<InMemoryDeviceRepository>();
+            services.AddSingleton<IDeviceRepository>(sp => sp.GetRequiredService<InMemoryDeviceRepository>());
+            services.AddSingleton<IDemoSeedStore>(sp => sp.GetRequiredService<InMemoryDeviceRepository>());
+            services.AddSingleton<InMemoryEmitterRepository>();
+            services.AddSingleton<IEmitterRepository>(sp => sp.GetRequiredService<InMemoryEmitterRepository>());
+            services.AddSingleton<IDemoSeedStore>(sp => sp.GetRequiredService<InMemoryEmitterRepository>());
             // Alert read + write share one instance: register the concrete once, forward both interfaces.
             services.AddSingleton<InMemoryAlertRepository>();
             services.AddSingleton<IAlertRepository>(sp => sp.GetRequiredService<InMemoryAlertRepository>());
             services.AddSingleton<IAlertWriter>(sp => sp.GetRequiredService<InMemoryAlertRepository>());
+            services.AddSingleton<IDemoSeedStore>(sp => sp.GetRequiredService<InMemoryAlertRepository>());
             services.AddSingleton<IAuditLog, InMemoryAuditLog>();
             // Collect-now / analyze-later stores (SPEC §7.9, M13): offline-first in-memory.
             services.AddSingleton<ISessionRepository, InMemorySessionRepository>();

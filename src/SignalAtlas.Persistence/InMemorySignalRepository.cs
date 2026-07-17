@@ -9,7 +9,7 @@ namespace SignalAtlas.Persistence;
 /// continuous streaming must not grow unboundedly. Reads return the NEWEST signals first — returning
 /// the oldest/seed left the UI showing stale "demo" data even while live classifications streamed in.
 /// </summary>
-public sealed class InMemorySignalRepository : ISignalRepository, ISignalWriter
+public sealed class InMemorySignalRepository : ISignalRepository, ISignalWriter, IDemoSeedStore
 {
     /// <summary>Retained-signal cap — recent classifications for the API without unbounded growth.</summary>
     public const int Capacity = 2000;
@@ -61,5 +61,12 @@ public sealed class InMemorySignalRepository : ISignalRepository, ISignalWriter
             while (_signals.Count > Capacity)
                 _signals.RemoveFirst();
         }
+    }
+
+    /// <summary>Drop the demo seed (and anything else) so a connected device shows live signals only.</summary>
+    public void ClearDemoSeed()
+    {
+        lock (_sync)
+            _signals.Clear();
     }
 }

@@ -3,6 +3,7 @@ using System.Text.Json;
 using System.Text.Json.Serialization;
 using SignalAtlas.Collector;
 using SignalAtlas.Domain;
+using SignalAtlas.Persistence;
 using SignalAtlas.Pipeline;
 
 namespace SignalAtlas.Api;
@@ -56,6 +57,10 @@ public static class IqIngressEndpoint
                 var config = ParseConfig(payload);
                 if (config is null || config.SamplesPerBlock <= 0)
                     return;
+
+                // A real device is now streaming: clear the demo seed once so the UI shows live data
+                // only (no-op after the first stream, and a no-op in DB mode).
+                ctx.RequestServices.GetService<ILiveSession>()?.OnDeviceStreamStarted();
 
                 source = new BrowserUploadSampleSource(ChannelCapacity, config.SamplesPerBlock);
                 var pipeline = BuildPipeline(ctx.RequestServices, config.CollectorId ?? "web-hackrf-1");

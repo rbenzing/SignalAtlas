@@ -5,11 +5,14 @@ namespace SignalAtlas.Persistence;
 /// <summary>
 /// Offline-first in-memory device store (SPEC §4.3). Seeds one device by running a sample decoded
 /// identity frame through the real <see cref="IDeviceResolver"/>, so the endpoint exercises the
-/// actual decode→determine path (SPEC §8.4) without a database.
+/// actual decode→determine path (SPEC §8.4) without a database. Live device determination is deferred
+/// (needs the IQ→bits demodulators), so when a real device is streaming the seed is cleared and this
+/// store is empty until decode lands.
 /// </summary>
-public sealed class InMemoryDeviceRepository : IDeviceRepository
+public sealed class InMemoryDeviceRepository : IDeviceRepository, IDemoSeedStore
 {
     private readonly List<Device> _devices;
+    private readonly object _sync = new();
 
     public InMemoryDeviceRepository(IDeviceResolver resolver)
     {
@@ -24,5 +27,16 @@ public sealed class InMemoryDeviceRepository : IDeviceRepository
         _devices = device is null ? [] : [device];
     }
 
-    public IReadOnlyList<Device> GetDevices(int limit = 100) => _devices.Take(limit).ToList();
+    public IReadOnlyList<Device> GetDevices(int limit = 100)
+    {
+        lock (_sync)
+            return _devices.Take(limit).ToList();
+    }
+
+    /// <summary>Drop the seeded demo device so a connected device shows live devices only.</summary>
+    public void ClearDemoSeed()
+    {
+        lock (_sync)
+            _devices.Clear();
+    }
 }

@@ -8,7 +8,7 @@ namespace SignalAtlas.Persistence;
 /// and uncertainty circles (§8.6) WITHOUT live ingestion. The live pipeline upserts correlated
 /// emitters on top, keyed idempotently on the deterministic emitter id (SPEC §7.8).
 /// </summary>
-public sealed class InMemoryEmitterRepository : IEmitterRepository
+public sealed class InMemoryEmitterRepository : IEmitterRepository, IDemoSeedStore
 {
     private readonly Dictionary<string, Emitter> _emitters = new(StringComparer.Ordinal);
     // The live pipeline Upserts an emitter per block from its own thread while REST handlers call
@@ -88,5 +88,12 @@ public sealed class InMemoryEmitterRepository : IEmitterRepository
     {
         lock (_sync)
             _emitters[e.Id] = e;
+    }
+
+    /// <summary>Drop the seeded demo emitters so a connected device shows live emitters only.</summary>
+    public void ClearDemoSeed()
+    {
+        lock (_sync)
+            _emitters.Clear();
     }
 }

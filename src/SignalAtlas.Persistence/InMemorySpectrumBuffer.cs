@@ -7,7 +7,7 @@ namespace SignalAtlas.Persistence;
 /// NFR-C3 bounded-buffer discipline). Thread-safe pushes from the live pipeline; oldest frames are
 /// evicted once <see cref="_capacity"/> is reached so the buffer never grows unboundedly.
 /// </summary>
-public sealed class InMemorySpectrumBuffer : ISpectrumBuffer
+public sealed class InMemorySpectrumBuffer : ISpectrumBuffer, IDemoSeedStore
 {
     /// <summary>Default retained-frame count — enough for a scrolling waterfall (SPEC §8.2).</summary>
     public const int DefaultCapacity = 256;
@@ -31,6 +31,13 @@ public sealed class InMemorySpectrumBuffer : ISpectrumBuffer
             while (_frames.Count > _capacity)
                 _frames.RemoveFirst();
         }
+    }
+
+    /// <summary>Drop the seeded demo frames so a connected device's waterfall shows live frames only.</summary>
+    public void ClearDemoSeed()
+    {
+        lock (_sync)
+            _frames.Clear();
     }
 
     /// <summary>Most-recent <paramref name="n"/> frames, newest first (clamped to what is held).</summary>

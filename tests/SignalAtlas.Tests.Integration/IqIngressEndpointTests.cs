@@ -112,6 +112,45 @@ public class IqIngressEndpointTests(WebApplicationFactory<Program> factory)
     }
 
     [Fact]
+    public async Task Streaming_ClearsDemoSeed_DevicesAndEmittersBecomeEmpty()
+    {
+        // When a real device starts streaming, the seeded demo data must be cleared so the UI shows
+        // live data only. Devices/emitters have no live data yet (decode/geolocation deferred), so
+        // they must go EMPTY once a stream starts.
+        var app = factory.WithWebHostBuilder(b => { });
+        var client = app.CreateClient();
+
+        // Seed is present before any device connects.
+        Assert.True((await GetPayloadCount(client, "/api/v1/emitters")) > 0);
+        Assert.True((await GetPayloadCount(client, "/api/v1/devices")) > 0);
+
+        var wsClient = app.Server.CreateWebSocketClient();
+        var uri = new UriBuilder(app.Server.BaseAddress) { Scheme = "ws", Path = "/ingest/iq" }.Uri;
+        using var ws = await wsClient.ConnectAsync(uri, CancellationToken.None);
+        var config = JsonSerializer.Serialize(new
+        {
+            type = "config",
+            centerFreqHz = 915_000_000L,
+            sampleRateHz = 2_000_000,
+            samplesPerBlock = 8,
+            collectorId = "web-hackrf-test",
+        });
+        await ws.SendAsync(Encoding.UTF8.GetBytes(config), WebSocketMessageType.Text, true, CancellationToken.None);
+        await Task.Delay(200); // let the handler run OnDeviceStreamStarted()
+
+        Assert.Equal(0, await GetPayloadCount(client, "/api/v1/emitters"));
+        Assert.Equal(0, await GetPayloadCount(client, "/api/v1/devices"));
+
+        await ws.CloseAsync(WebSocketCloseStatus.NormalClosure, "done", CancellationToken.None);
+    }
+
+    private static async Task<int> GetPayloadCount(System.Net.Http.HttpClient client, string path)
+    {
+        using var doc = JsonDocument.Parse(await (await client.GetAsync(path)).Content.ReadAsStringAsync());
+        return doc.RootElement.GetProperty("payload").GetArrayLength();
+    }
+
+    [Fact]
     public async Task Streaming_ImmediateClientClose_CompletesHandshakeGracefully()
     {
         // Regression test: previously the server's first ReceiveAsync (before any config frame)

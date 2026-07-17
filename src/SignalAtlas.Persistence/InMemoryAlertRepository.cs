@@ -8,7 +8,7 @@ namespace SignalAtlas.Persistence;
 /// without a database. Bounded + thread-safe (SPEC NFR-C3): the live pipeline appends raised alerts
 /// from its own thread while REST handlers read concurrently; reads return the newest first.
 /// </summary>
-public sealed class InMemoryAlertRepository : IAlertRepository, IAlertWriter
+public sealed class InMemoryAlertRepository : IAlertRepository, IAlertWriter, IDemoSeedStore
 {
     /// <summary>Retained-alert cap — recent alerts for the API without unbounded growth.</summary>
     public const int Capacity = 500;
@@ -58,5 +58,12 @@ public sealed class InMemoryAlertRepository : IAlertRepository, IAlertWriter
             while (_alerts.Count > Capacity)
                 _alerts.RemoveFirst();
         }
+    }
+
+    /// <summary>Drop the demo seed so a connected device shows live alerts only.</summary>
+    public void ClearDemoSeed()
+    {
+        lock (_sync)
+            _alerts.Clear();
     }
 }
