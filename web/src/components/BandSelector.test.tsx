@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { render, screen } from "@testing-library/react";
+import { render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import BandSelector from "./BandSelector";
 import * as sdr from "../sdr/SdrProvider";
@@ -47,5 +47,37 @@ describe("BandSelector", () => {
     await userEvent.click(screen.getByRole("button", { name: /ISM 902-928/ }));
     await userEvent.click(screen.getByRole("menuitem", { name: /ADS-B 1090 MHz/ }));
     expect(setTuning).toHaveBeenCalledWith({ centerFreqHz: 1_090_000_000, sampleRateHz: 2_000_000 });
+  });
+
+  it("marks the menu-trigger button with menu a11y attributes that toggle on open", async () => {
+    mockSdr(2_437_000_000);
+    render(<BandSelector />);
+    const trigger = screen.getByRole("button", { name: /Wi-Fi/ });
+    expect(trigger).toHaveAttribute("aria-haspopup", "menu");
+    expect(trigger).toHaveAttribute("aria-expanded", "false");
+    await userEvent.click(trigger);
+    expect(trigger).toHaveAttribute("aria-expanded", "true");
+  });
+
+  it("shows exactly one checkmark on the channel (not also the band header) when the band center equals a channel center", async () => {
+    // ism-sub-ghz band center 915 MHz coincides with the ism-915 channel center.
+    mockSdr(915_000_000);
+    render(<BandSelector />);
+    await userEvent.click(screen.getByRole("button", { name: /ISM 902-928/ }));
+    expect(screen.getAllByTestId("CheckIcon")).toHaveLength(1);
+    // The ✓ belongs to the channel row, and the band header carries none.
+    expect(within(screen.getByRole("menuitem", { name: /^915 MHz$/ })).getByTestId("CheckIcon")).toBeInTheDocument();
+    expect(within(screen.getByRole("menuitem", { name: /ISM 902-928 & 433 MHz/ })).queryByTestId("CheckIcon")).toBeNull();
+  });
+
+  it("keeps the band-header checkmark for a band-center default that no channel shares", async () => {
+    // ism-2400 band center 2442 MHz is not any Wi-Fi channel center → header keeps the ✓.
+    mockSdr(2_442_000_000);
+    render(<BandSelector />);
+    await userEvent.click(screen.getByRole("button", { name: /Wi-Fi \/ BLE \/ Zigbee 2\.4 GHz/ }));
+    expect(screen.getAllByTestId("CheckIcon")).toHaveLength(1);
+    expect(
+      within(screen.getByRole("menuitem", { name: /Wi-Fi \/ BLE \/ Zigbee 2\.4 GHz/ })).getByTestId("CheckIcon"),
+    ).toBeInTheDocument();
   });
 });

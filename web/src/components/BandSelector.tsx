@@ -15,6 +15,7 @@ import { bandPresets, activeBand } from "../sdr/bandPresets";
 export default function BandSelector() {
   const sdr = useSdr();
   const [anchor, setAnchor] = useState<HTMLElement | null>(null);
+  const open = Boolean(anchor);
   const center = sdr.tuning.centerFreqHz;
   const current = activeBand(center);
 
@@ -31,17 +32,27 @@ export default function BandSelector() {
         color="inherit"
         endIcon={<ArrowDropDownIcon />}
         onClick={(e) => setAnchor(e.currentTarget)}
+        aria-haspopup="menu"
+        aria-expanded={open}
+        aria-controls={open ? "band-selector-menu" : undefined}
       >
         {current?.label ?? "Custom"}
       </Button>
-      <Menu anchorEl={anchor} open={Boolean(anchor)} onClose={() => setAnchor(null)}>
+      <Menu id="band-selector-menu" anchorEl={anchor} open={open} onClose={() => setAnchor(null)}>
         {bandPresets.flatMap((band) => [
+          // The band-header ✓ marks the band-center default only when no enumerated
+          // channel shares that center — otherwise the more specific channel row owns
+          // the ✓ and the header stays unmarked (no duplicate check).
           <MenuItem
             key={band.key}
             onClick={() => tune(band.centerFreqHz, band.sampleRateHz)}
             sx={{ fontWeight: 600 }}
           >
-            <ListItemIcon>{center === band.centerFreqHz ? <CheckIcon fontSize="small" /> : null}</ListItemIcon>
+            <ListItemIcon>
+              {center === band.centerFreqHz && !band.channels.some((c) => c.centerFreqHz === center) ? (
+                <CheckIcon fontSize="small" />
+              ) : null}
+            </ListItemIcon>
             <ListItemText>{band.label}</ListItemText>
           </MenuItem>,
           ...band.channels.map((ch) => (
