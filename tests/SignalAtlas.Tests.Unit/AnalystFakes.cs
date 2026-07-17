@@ -13,6 +13,7 @@ internal sealed class FakeDeviceRepository(IEnumerable<Device> devices) : IDevic
 {
     private readonly List<Device> _devices = devices.ToList();
     public IReadOnlyList<Device> GetDevices(int limit = 100) => _devices.Take(limit).ToList();
+    public void Upsert(Device device) => _devices.Add(device);
 }
 
 internal sealed class FakeEmitterRepository(IEnumerable<Emitter> emitters) : IEmitterRepository

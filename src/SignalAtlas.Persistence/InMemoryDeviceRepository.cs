@@ -33,6 +33,21 @@ public sealed class InMemoryDeviceRepository : IDeviceRepository, IDemoSeedStore
             return _devices.Take(limit).ToList();
     }
 
+    private const int MaxDevices = 2000;
+
+    /// <summary>Idempotent, newest-first, bounded upsert (SPEC §8.4). Replaces any existing row with
+    /// the same id, then prepends, so live re-sightings of one aircraft stay a single entry.</summary>
+    public void Upsert(Device device)
+    {
+        lock (_sync)
+        {
+            _devices.RemoveAll(d => string.Equals(d.Id, device.Id, StringComparison.Ordinal));
+            _devices.Insert(0, device);
+            if (_devices.Count > MaxDevices)
+                _devices.RemoveRange(MaxDevices, _devices.Count - MaxDevices);
+        }
+    }
+
     /// <summary>Drop the seeded demo device so a connected device shows live devices only.</summary>
     public void ClearDemoSeed()
     {

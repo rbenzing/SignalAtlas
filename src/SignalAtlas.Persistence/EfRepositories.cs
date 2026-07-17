@@ -34,11 +34,22 @@ public sealed class EfSignalRepository(SignalAtlasDbContext db) : ISignalReposit
     }
 }
 
-/// <summary>EF-backed device store (SPEC §9.2 GET /devices).</summary>
+/// <summary>EF-backed device store (SPEC §9.2 GET /devices; §8.4 write from the live decode stage).</summary>
 public sealed class EfDeviceRepository(SignalAtlasDbContext db) : IDeviceRepository
 {
     public IReadOnlyList<Device> GetDevices(int limit = 100) =>
         db.Devices.OrderBy(d => d.Id).Take(limit).ToList();
+
+    /// <summary>Idempotent insert-or-update keyed on the deterministic device id (SPEC §8.4).</summary>
+    public void Upsert(Device device)
+    {
+        var existing = db.Devices.Find(device.Id);
+        if (existing is null)
+            db.Devices.Add(device);
+        else
+            db.Entry(existing).CurrentValues.SetValues(device);
+        db.SaveChanges();
+    }
 }
 
 /// <summary>EF-backed emitter store (SPEC §7.2 emitters, §8.5). Reads all; the pipeline upserts.</summary>

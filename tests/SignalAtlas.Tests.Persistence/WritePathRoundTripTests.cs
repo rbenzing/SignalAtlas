@@ -71,6 +71,44 @@ public sealed class WritePathRoundTripTests : IDisposable
         Assert.Equal(0.9, got.Confidence);
     }
 
+    private static Device SampleDevice(string icao, string? callsign) =>
+        new(
+            Id: icao,
+            DeviceType: "Aircraft",
+            PrimaryIdentifier: icao,
+            Identifiers: callsign is null
+                ? new Dictionary<string, string> { ["icao"] = icao }
+                : new Dictionary<string, string> { ["icao"] = icao, ["callsign"] = callsign },
+            Vendor: null,
+            Protocol: "ADS-B",
+            Confidence: 1.0,
+            Evidence: [new EvidenceItem("icao", icao, 1.0)]);
+
+    [Fact]
+    public void Device_Upsert_Then_Get_RoundTrips()
+    {
+        new EfDeviceRepository(NewContext()).Upsert(SampleDevice("4840D6", "KLM1023"));
+
+        var read = new EfDeviceRepository(NewContext()).GetDevices();
+
+        var got = Assert.Single(read);
+        Assert.Equal("4840D6", got.Id);
+        Assert.Equal("KLM1023", got.Identifiers["callsign"]);
+        Assert.NotEmpty(got.Evidence);
+    }
+
+    [Fact]
+    public void Device_Upsert_IsIdempotent_AndUpdatesExistingRow()
+    {
+        new EfDeviceRepository(NewContext()).Upsert(SampleDevice("4840D6", null));
+        new EfDeviceRepository(NewContext()).Upsert(SampleDevice("4840D6", "KLM1023"));
+
+        var read = new EfDeviceRepository(NewContext()).GetDevices();
+
+        var got = Assert.Single(read);                       // same id → no duplicate
+        Assert.Equal("KLM1023", got.Identifiers["callsign"]); // updated in place
+    }
+
     [Fact]
     public void Alert_Add_Then_Read_RoundTrips()
     {
