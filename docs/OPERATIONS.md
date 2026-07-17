@@ -9,6 +9,7 @@ operational-readiness findings. The edge runs **fully offline**; Docker/Postgres
 |---|---|---|---|
 | Offline dev (default) | `dotnet run --project src/SignalAtlas.Api` | in-memory (seeded) | off |
 | Offline + live capture | set `Ingestion__Enabled=true` | in-memory | file/synthetic/HackRF |
+| Browser WebUSB HackRF | **Connect HackRF** in the web navbar | in-memory | live, per-connection via `/ingest/iq` |
 | Persistent (Docker) | `docker compose up` | PostgreSQL + TimescaleDB | per config |
 
 The API binds to the configured `ASPNETCORE_URLS`. **Bind to localhost by default**; only expose a
@@ -83,7 +84,34 @@ inside a container, pass the device through (see the commented `devices:` note i
   without a connection string. Investigate the DB/volume; restart once `/ready` clears.
 - **Rate limiting:** clients exceeding 100 req/s get 429 problem-details; tune the limiter for trusted LANs.
 
-## 8. Known limits (this version)
+## 8. Browser WebUSB HackRF ingress
+
+An operator can capture from a **HackRF One attached to the machine running the browser**, with
+no server-side SDR. In the web UI navbar, **Connect HackRF** triggers the browser's WebUSB
+permission prompt; the browser streams interleaved signed-8-bit IQ to the API over a binary
+WebSocket at **`/ingest/iq`**, which feeds the same ingestion pipeline (classify → correlate →
+anomaly) and live SignalR push. The protocol is a JSON `config` text frame (center/rate/
+`samplesPerBlock`/collectorId) followed by binary IQ frames; a re-sent config frame retunes.
+
+- **Browser:** Chrome or Edge (WebUSB). Firefox/Safari are unsupported.
+- **Windows driver:** install WinUSB for the HackRF via [Zadig](https://zadig.akeo.ie/)
+  (Options → List All Devices → HackRF One → replace with WinUSB). Without it the device shows
+  as a COM port and the chooser is empty. Close other SDR software (SDR#, GNU Radio) first — the
+  USB interface can only be claimed once.
+- **Endpoint posture:** `/ingest/iq` is intentionally **un-gated** (like `/hub/live`), consistent
+  with the single-operator loopback posture — do **not** expose it on a non-loopback address until
+  the auth seam is upgraded (SPEC §4.7).
+- **Receive-only & data:** the browser driver has no transmit path (asserted by tests on both ends);
+  raw IQ is consumed into spectra/features and never persisted or forwarded. Backpressure is
+  drop-oldest on both ends (the browser drops when the socket buffer backs up; the backend channel
+  is bounded drop-oldest).
+- **Tuning:** center frequency, sample rate, and gains are set from the navbar popover (defaults
+  915 MHz, 2 MS/s, LNA 16 dB, VGA 20 dB, amp off). A previously-authorized device auto-reconnects
+  on page load without re-prompting.
+- **Scope:** like other live modes, this determines protocols but **not devices** (IQ→bits
+  demodulation deferred — see §9).
+
+## 9. Known limits (this version)
 
 - IQ→bits demodulation front-end is deferred (needs field `.iq` fixtures); live mode determines
   protocols but not devices until the demodulators land.

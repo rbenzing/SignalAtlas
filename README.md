@@ -65,6 +65,24 @@ Point it at a captured `.iq` file with `Ingestion__IqFile=/path/to/capture.iq`
 (interleaved signed-8-bit I/Q, HackRF format). A real HackRF is auto-detected when
 present; otherwise it uses a bounded synthetic source.
 
+### Live capture from a browser HackRF (WebUSB)
+
+No server-side SDR? Plug a **HackRF One** into the machine running the browser and
+capture straight from the UI. In the top navbar, click **Connect HackRF** and pick the
+device in the browser's WebUSB permission prompt. The browser reads IQ over WebUSB and
+streams it to the API over a binary WebSocket (`/ingest/iq`); the backend runs the same
+classify → correlate → anomaly pipeline and pushes the live waterfall/occupancy over
+SignalR. The radio is **receive-only** (no transmit path exists) and raw IQ never leaves
+the edge — only spectra/features are produced. Tune center freq / sample rate / gains from
+the navbar popover; a previously-authorized device reconnects on load without re-prompting.
+
+Requirements: a WebUSB browser (**Chrome or Edge**) and the API running (so the Vite proxy
+reaches `/ingest/iq` on 5285). On **Windows**, install the WinUSB driver for the HackRF with
+[Zadig](https://zadig.akeo.ie/) (Options → List All Devices → HackRF One → replace driver
+with WinUSB), otherwise it enumerates as a COM port and the chooser is empty. Like live
+file/synthetic mode, this classifies protocols but **defers device determination** (the
+IQ→bits demodulators are a separate seam). See [OPERATIONS.md](docs/OPERATIONS.md) §8.
+
 ---
 
 ## Run from your IDE
@@ -142,6 +160,9 @@ push is over the SignalR hub `/hub/live`.
 `GET /summary` · `GET /spectrum/frames|occupancy|coverage` ·
 `POST /analyst/query` · `GET /sessions` · `POST /analysis/runs` ·
 `GET /enrichments` + accept/reject · `GET /health` · `GET /ready` · `GET /metrics`.
+
+Browser WebUSB HackRF IQ ingress is the un-gated binary WebSocket `/ingest/iq`
+(mapped outside `/api/v1`, alongside `/hub/live`; see [OPERATIONS.md](docs/OPERATIONS.md) §8).
 
 ---
 
