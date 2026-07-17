@@ -61,6 +61,24 @@ public class AdsBDemodulatorTests
     }
 
     [Fact]
+    public void Demodulate_ManyPureNoiseBlocks_ProduceNoDecodedAircraft()
+    {
+        // The preamble gate is a deliberately-loose pre-filter; the CRC-24 in AdsBDecoder is the
+        // real validator. The guarantee that matters end-to-end: pure noise yields no DECODED frame.
+        // Assert it across many seeds (a statistical bound, not a single-seed point check).
+        var decoder = new AdsBDecoder();
+        int survivors = 0;
+        for (int seed = 0; seed < 300; seed++)
+        {
+            var block = AdsBModulator.Modulate(new byte[14], amp: 0.0, noiseSigma: 1.0, seed: seed);
+            foreach (var frame in Demod.Demodulate(block, Features()))
+                if (decoder.Decode(frame).Success)
+                    survivors++;
+        }
+        Assert.Equal(0, survivors);
+    }
+
+    [Fact]
     public void Demodulate_OffFrequencyBlock_YieldsNothing_SelfGate()
     {
         // Frame present, but tuned to 915 MHz @ 2 MS/s → 1090 MHz not in band.
