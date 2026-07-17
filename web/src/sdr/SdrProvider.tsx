@@ -94,6 +94,9 @@ export function SdrProvider({ children }: { children: React.ReactNode }) {
   const tuningRef = useRef<SdrTuning>(DEFAULT_TUNING);
   const dropsRef = useRef(0);
 
+  // configFrame/applyTuningToDevice/startStreaming MUST read tuning from tuningRef,
+  // never from `state`, to avoid stale-closure bugs (refs are updated synchronously
+  // by setTuning; `state.tuning` only updates on the next render).
   const configFrame = (t: SdrTuning): IqStreamConfig => ({
     type: "config",
     centerFreqHz: t.centerFreqHz,
@@ -111,16 +114,24 @@ export function SdrProvider({ children }: { children: React.ReactNode }) {
     await dev.setAmpEnable(t.ampEnable);
   };
 
-  // `disconnect` is defined before `connect` so `connect`'s catch block can call it
-  // without triggering a TS/eslint "used before declaration" error.
-  const disconnect = useCallback(async () => {
+  // Teardown closes/releases the device and socket and nulls the refs, but does NOT
+  // dispatch and does NOT reset tuningRef — it must leave `state.tuning`/`tuningRef`
+  // untouched so an error path doesn't silently lose the user's tuning selection.
+  const teardown = useCallback(async () => {
     try { await deviceRef.current?.disconnect(); } catch { /* ignore */ }
     try { wsRef.current?.close(); } catch { /* ignore */ }
     deviceRef.current = null;
     wsRef.current = null;
     iqRef.current = null;
-    dispatch({ type: "disconnected" });
   }, []);
+
+  // `disconnect` is defined before `connect` so `connect`'s catch block can call
+  // `teardown` without triggering a TS/eslint "used before declaration" error.
+  const disconnect = useCallback(async () => {
+    await teardown();
+    tuningRef.current = DEFAULT_TUNING;
+    dispatch({ type: "disconnected" });
+  }, [teardown]);
 
   const startStreaming = async (info: HackRfDeviceInfo, dev: HackRfDevice) => {
     const t = tuningRef.current;
@@ -133,8 +144,9 @@ export function SdrProvider({ children }: { children: React.ReactNode }) {
     iqRef.current = iq;
 
     await new Promise<void>((resolve, reject) => {
-      ws.onopen = () => resolve();
-      ws.onerror = () => reject(new Error("IQ WebSocket failed to open."));
+      const timer = setTimeout(() => reject(new Error("IQ WebSocket connection timed out.")), 8000);
+      ws.onopen = () => { clearTimeout(timer); resolve(); };
+      ws.onerror = () => { clearTimeout(timer); reject(new Error("IQ WebSocket failed to open.")); };
     });
     iq.sendConfig(configFrame(t));
 
@@ -161,11 +173,11 @@ export function SdrProvider({ children }: { children: React.ReactNode }) {
       const info = await dev.connect();
       await startStreaming(info, dev);
     } catch (e) {
+      await teardown();
       dispatch({ type: "error", message: (e as Error).message });
-      await disconnect();
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [disconnect]);
+  }, [teardown]);
 
   const setTuning = useCallback(async (patch: Partial<SdrTuning>) => {
     const next = { ...tuningRef.current, ...patch };
