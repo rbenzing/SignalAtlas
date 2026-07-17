@@ -51,17 +51,41 @@ export function normalize(v: number, min: number, max: number): number {
   return (v - min) / (max - min);
 }
 
-/** Global dBFS min/max across all frame bins (drives the waterfall + legend). */
+// Robust ranging: sample a bounded window of recent frames + stride the bins so the sort stays cheap
+// at the live frame rate, and exclude the DC center bin (index N/2 ±1) — the SDR's DC-offset spike
+// sits there and would otherwise blow out the color scale, hiding every real signal under it.
+const RANGE_SAMPLE_FRAMES = 12;
+const RANGE_BIN_STRIDE = 4;
+const RANGE_MIN_SPAN_DB = 6;
+const RANGE_LOW_PCT = 0.05;
+const RANGE_HIGH_PCT = 0.99;
+
+/**
+ * Robust dBFS min/max for coloring the waterfall + legend. Uses percentiles over recent, DC-excluded
+ * bins rather than raw global min/max, so a single DC-offset spike or one very strong emitter can't
+ * collapse the visible range and hide real signal. Falls back to a sane default with no data.
+ */
 export function powerRange(frames: SpectrumFrame[]): { min: number; max: number } {
-  let min = Infinity;
-  let max = -Infinity;
-  for (const f of frames) {
-    for (const p of f.powerDbfs) {
-      if (p < min) min = p;
-      if (p > max) max = p;
+  const samples: number[] = [];
+  const take = Math.min(frames.length, RANGE_SAMPLE_FRAMES);
+  for (let fi = 0; fi < take; fi++) {
+    const p = frames[fi].powerDbfs;
+    const n = p.length;
+    const dc = n >> 1;
+    for (let i = 0; i < n; i += RANGE_BIN_STRIDE) {
+      if (Math.abs(i - dc) <= 1) continue; // exclude the DC center bin (±1 guard)
+      const v = p[i];
+      if (Number.isFinite(v)) samples.push(v);
     }
   }
-  if (!isFinite(min) || !isFinite(max)) return { min: -120, max: 0 };
+  if (samples.length === 0) return { min: -100, max: 0 };
+
+  samples.sort((a, b) => a - b);
+  const at = (q: number) =>
+    samples[Math.min(samples.length - 1, Math.max(0, Math.round(q * (samples.length - 1))))];
+  const min = at(RANGE_LOW_PCT);
+  let max = at(RANGE_HIGH_PCT);
+  if (max - min < RANGE_MIN_SPAN_DB) max = min + RANGE_MIN_SPAN_DB; // keep a usable span
   return { min, max };
 }
 

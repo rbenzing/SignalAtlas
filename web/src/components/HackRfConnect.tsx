@@ -11,11 +11,14 @@ import Switch from "@mui/material/Switch";
 import Tooltip from "@mui/material/Tooltip";
 import CircularProgress from "@mui/material/CircularProgress";
 import SettingsInputAntennaIcon from "@mui/icons-material/SettingsInputAntenna";
+import GraphicEqIcon from "@mui/icons-material/GraphicEq";
 import TuneIcon from "@mui/icons-material/Tune";
 import { useSdr } from "../sdr/SdrProvider";
+import { useLive } from "../live/LiveProvider";
 
 export default function HackRfConnect() {
   const sdr = useSdr();
+  const { spectrumFps } = useLive();
   const [anchor, setAnchor] = useState<HTMLElement | null>(null);
 
   if (sdr.status === "idle" || sdr.status === "error") {
@@ -39,6 +42,8 @@ export default function HackRfConnect() {
   }
 
   // streaming
+  const scanning = spectrumFps > 0;
+  const centerMhz = (sdr.tuning.centerFreqHz / 1e6).toFixed(3);
   return (
     <Box sx={{ display: "flex", alignItems: "center", gap: 1 }}>
       <Chip
@@ -48,6 +53,18 @@ export default function HackRfConnect() {
         icon={<SettingsInputAntennaIcon />}
         label={`HackRF ${sdr.serial ?? ""}${sdr.drops > 0 ? ` · ${sdr.drops} drops` : ""}`}
       />
+      <Tooltip
+        title={scanning ? `Receiving live IQ at ${centerMhz} MHz` : "Connected but no IQ frames arriving yet"}
+        describeChild
+      >
+        <Chip
+          color={scanning ? "success" : "warning"}
+          variant="filled"
+          size="small"
+          icon={<GraphicEqIcon />}
+          label={scanning ? `Scanning · ${spectrumFps} fps · ${centerMhz} MHz` : "Scanning · no data"}
+        />
+      </Tooltip>
       <Tooltip title="Tuning">
         <IconButton size="small" onClick={(e) => setAnchor(e.currentTarget)} aria-label="HackRF tuning">
           <TuneIcon fontSize="small" />

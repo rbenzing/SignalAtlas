@@ -31,6 +31,8 @@ export interface LiveData {
   alerts: Alert[];
   /** Rolling waterfall buffer, newest-first, capped at FRAME_CAP. */
   spectrumFrames: SpectrumFrame[];
+  /** Live spectrum-frame arrival rate (frames/sec over the last second) — 0 when not scanning. */
+  spectrumFps: number;
 }
 
 const LiveContext = createContext<LiveData | null>(null);
@@ -42,6 +44,19 @@ export function LiveProvider({ children }: { children: React.ReactNode }) {
   const [emitters, setEmitters] = useState<Emitter[]>([]);
   const [alerts, setAlerts] = useState<Alert[]>([]);
   const [spectrumFrames, setSpectrumFrames] = useState<SpectrumFrame[]>([]);
+
+  // Live frame-rate: record each spectrumFrame arrival, recompute frames-in-the-last-second on a
+  // timer so the readout falls to 0 when scanning stops (browser wall-clock; outside the det. core).
+  const [spectrumFps, setSpectrumFps] = useState(0);
+  const frameArrivalsRef = useRef<number[]>([]);
+  useEffect(() => {
+    const id = window.setInterval(() => {
+      const cutoff = Date.now() - 1000;
+      frameArrivalsRef.current = frameArrivalsRef.current.filter((t) => t >= cutoff);
+      setSpectrumFps(frameArrivalsRef.current.length);
+    }, 500);
+    return () => window.clearInterval(id);
+  }, []);
 
   // Polling drives the seed (first fetch) and the disconnected-fallback refresh.
   const polledSignals = usePolling(getSignals, POLL_MS);
@@ -111,10 +126,11 @@ export function LiveProvider({ children }: { children: React.ReactNode }) {
   });
 
   useLiveEvent("spectrumFrame", (f) => {
+    frameArrivalsRef.current.push(Date.now());
     setSpectrumFrames((prev) => [f, ...prev].slice(0, FRAME_CAP));
   });
 
-  const value: LiveData = { status, signals, emitters, alerts, spectrumFrames };
+  const value: LiveData = { status, signals, emitters, alerts, spectrumFrames, spectrumFps };
   return <LiveContext.Provider value={value}>{children}</LiveContext.Provider>;
 }
 

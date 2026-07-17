@@ -55,11 +55,19 @@ export default function Waterfall({ frames, min, max, height = 320 }: WaterfallP
       const octx = off.getContext("2d");
       if (!octx) return;
 
+      const dc = nBins >> 1; // DC-offset spike lives at the center bin
       const img = octx.createImageData(nBins, nRows);
       for (let r = 0; r < nRows; r++) {
         const row = ordered[r].powerDbfs;
         for (let c = 0; c < nBins; c++) {
-          const [rr, gg, bb] = powerRampRgb(normalize(row[c] ?? min, min, max));
+          let v = row[c] ?? min;
+          // De-emphasize the DC center line: paint it from nearby non-DC power instead of the spike.
+          if (Math.abs(c - dc) <= 1) {
+            const left = row[dc - 2];
+            const right = row[dc + 2];
+            v = Number.isFinite(left) && Number.isFinite(right) ? (left + right) / 2 : min;
+          }
+          const [rr, gg, bb] = powerRampRgb(normalize(v, min, max));
           const idx = (r * nBins + c) * 4;
           img.data[idx] = rr;
           img.data[idx + 1] = gg;
