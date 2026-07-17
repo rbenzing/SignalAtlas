@@ -11,6 +11,9 @@ namespace SignalAtlas.Persistence;
 public sealed class InMemoryEmitterRepository : IEmitterRepository
 {
     private readonly Dictionary<string, Emitter> _emitters = new(StringComparer.Ordinal);
+    // The live pipeline Upserts an emitter per block from its own thread while REST handlers call
+    // All() concurrently — a Dictionary is not thread-safe, so guard both (SPEC NFR-C3).
+    private readonly object _sync = new();
 
     public InMemoryEmitterRepository()
     {
@@ -75,7 +78,15 @@ public sealed class InMemoryEmitterRepository : IEmitterRepository
             ]);
     }
 
-    public IReadOnlyList<Emitter> All() => _emitters.Values.OrderBy(e => e.Id, StringComparer.Ordinal).ToList();
+    public IReadOnlyList<Emitter> All()
+    {
+        lock (_sync)
+            return _emitters.Values.OrderBy(e => e.Id, StringComparer.Ordinal).ToList();
+    }
 
-    public void Upsert(Emitter e) => _emitters[e.Id] = e;
+    public void Upsert(Emitter e)
+    {
+        lock (_sync)
+            _emitters[e.Id] = e;
+    }
 }
