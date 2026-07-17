@@ -32,6 +32,10 @@ public sealed class IngestionPipeline
     private readonly IAlertWriter? _alerts;
     private readonly ISpectrumBuffer? _spectrum;
     private readonly ILiveNotifier _notifier;
+    private readonly IReadOnlyList<IDemodulator> _demodulators;
+    private readonly IDecoderRegistry? _registry;
+    private readonly IDeviceResolver? _resolver;
+    private readonly IDeviceRepository? _devices;
 
     public IngestionPipeline(
         string collectorId,
@@ -46,7 +50,11 @@ public sealed class IngestionPipeline
         IEmitterRepository? emitters = null,
         IAlertWriter? alerts = null,
         ISpectrumBuffer? spectrum = null,
-        ILiveNotifier? notifier = null)
+        ILiveNotifier? notifier = null,
+        IEnumerable<IDemodulator>? demodulators = null,
+        IDecoderRegistry? registry = null,
+        IDeviceResolver? resolver = null,
+        IDeviceRepository? devices = null)
     {
         _collector = new ScanCollector(collectorId, clock, position);
         _processor = processor ?? throw new ArgumentNullException(nameof(processor));
@@ -64,6 +72,12 @@ public sealed class IngestionPipeline
         // Live push (SPEC §9.3): fire-and-forget broadcast of each artifact. No-op by default so
         // pipeline unit tests stay dependency-free.
         _notifier = notifier ?? NullLiveNotifier.Instance;
+        // Optional decode stage (SPEC §8.4): demodulate IQ → frames → decode → determine devices.
+        // Any null → the stage is a no-op (RF-only pipeline, unchanged).
+        _demodulators = demodulators?.ToList() ?? [];
+        _registry = registry;
+        _resolver = resolver;
+        _devices = devices;
     }
 
     public IngestionResult Run(ISampleSource source, CancellationToken ct = default)
@@ -118,6 +132,31 @@ public sealed class IngestionPipeline
             signalCount++;
             _notifier.SignalCreated(signal);   // live push (SPEC §9.3 signal.created).
 
+            // 4b. DECODE (SPEC §8.4): demodulate this block, decode frames, determine devices.
+            if (_demodulators.Count > 0 && _registry is not null && _resolver is not null && _devices is not null)
+            {
+                var decoded = new List<DecodedFrame>();
+                foreach (var demod in _demodulators)
+                    foreach (var frameBytes in demod.Demodulate(block, features))
+                    {
+                        var outcome = _registry.Decode(demod.Protocol, frameBytes);
+                        if (outcome.Success && outcome.Frame is not null)
+                            decoded.Add(outcome.Frame);
+                    }
+
+                // One device per distinct primary identifier (e.g. ICAO): frames from the same
+                // aircraft converge on the same deterministic device id → Upsert merges them.
+                foreach (var group in decoded.GroupBy(PrimaryKey))
+                {
+                    var device = _resolver.Resolve(group.ToList());
+                    if (device is not null)
+                    {
+                        _devices.Upsert(device);
+                        _notifier.DeviceDetermined(device);
+                    }
+                }
+            }
+
             // 4. Correlate on RF features ONLY — decode is deferred, so no decoded identifiers.
             var input = new CorrelationInput(
                 Protocol: cls.Protocol,
@@ -171,6 +210,19 @@ public sealed class IngestionPipeline
 
     private static readonly IReadOnlyDictionary<string, string> EmptyIdentifiers =
         new Dictionary<string, string>();
+
+    // Ordered primary-identifier keys (mirrors DeviceResolver's precedence) used to group a block's
+    // decoded frames per device before resolving. Falls back to protocol when none is present.
+    private static readonly string[] PrimaryKeyOrder =
+        { "icao", "bssid", "mac", "devaddr", "deveui", "ext_addr", "short_addr", "pan_id", "callsign", "pi", "ps" };
+
+    private static string PrimaryKey(DecodedFrame f)
+    {
+        foreach (var key in PrimaryKeyOrder)
+            if (f.Identifiers.TryGetValue(key, out var v) && !string.IsNullOrWhiteSpace(v))
+                return $"{key}:{v}";
+        return $"proto:{f.Protocol}";
+    }
 
     // Block duration = samples / sample-rate (ms). Guards a zero sample rate.
     private static int DurationMs(IqBlock block) =>
