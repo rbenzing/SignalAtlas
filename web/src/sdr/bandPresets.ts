@@ -63,12 +63,13 @@ export const bandPresets: BandPreset[] = [
   },
   {
     key: "ism-sub-ghz",
-    label: "ISM 902-928 MHz",
-    lowHz: 902_000_000,
+    label: "ISM 902-928 & 433 MHz",
+    lowHz: 433_050_000,
     highHz: 928_000_000,
     centerFreqHz: 915_000_000,
     sampleRateHz: 2 * MS,
     channels: [
+      { key: "ism-433", label: "433.92 MHz", centerFreqHz: 433_920_000, sampleRateHz: 2 * MS },
       { key: "ism-915", label: "915 MHz", centerFreqHz: 915_000_000, sampleRateHz: 2 * MS },
     ],
   },

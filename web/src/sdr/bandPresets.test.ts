@@ -43,6 +43,6 @@ describe("activeBand", () => {
   });
 
   it("returns null for an off-catalog (custom) center", () => {
-    expect(activeBand(700_000_000)).toBeNull();
+    expect(activeBand(1_500_000_000)).toBeNull();
   });
 });
