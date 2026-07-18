@@ -16,6 +16,8 @@ import Divider from "@mui/material/Divider";
 import Stack from "@mui/material/Stack";
 import FormControlLabel from "@mui/material/FormControlLabel";
 import Switch from "@mui/material/Switch";
+import ToggleButton from "@mui/material/ToggleButton";
+import ToggleButtonGroup from "@mui/material/ToggleButtonGroup";
 import CloseIcon from "@mui/icons-material/Close";
 import ChartCard from "../components/ChartCard";
 import ProtocolLegend from "../components/ProtocolLegend";
@@ -42,7 +44,14 @@ import {
   AIRCRAFT_POINT_LAYER,
   AIRCRAFT_COLOR,
 } from "../lib/rfmap";
-import { resolveBaseStyle } from "../lib/basemap";
+import {
+  resolveBaseStyle,
+  rasterSourcesAndLayers,
+  basemapLabels,
+  defaultBasemapId,
+  attributionFor,
+  type BasemapId,
+} from "../lib/basemap";
 
 const MAP_H = 480;
 
@@ -71,6 +80,7 @@ export default function RfMap() {
   const fittedRef = useRef(false);
   const [mapReady, setMapReady] = useState(false);
   const [heatmap, setHeatmap] = useState(false);
+  const [basemap, setBasemap] = useState<BasemapId>(defaultBasemapId());
   const [unplaceable, setUnplaceable] = useState(0);
   const [selected, setSelected] = useState<Emitter | null>(null);
   const [selectedAircraft, setSelectedAircraft] = useState<Device | null>(null);
@@ -119,6 +129,12 @@ export default function RfMap() {
     };
 
     map.on("load", () => {
+      // ESRI raster basemaps (hidden until selected — offline-first). Added first so the graticule,
+      // emitters, and aircraft layers stack above whatever basemap is active.
+      for (const pair of rasterSourcesAndLayers()) {
+        map.addSource(pair.sourceId, pair.source);
+        map.addLayer(pair.layer);
+      }
       // Graticule (bottom) — added first so emitter layers render above it.
       map.addSource(RF_GRATICULE_SOURCE, {
         type: "geojson",
@@ -193,6 +209,19 @@ export default function RfMap() {
     map.setLayoutProperty(RF_HEATMAP_LAYER, "visibility", heatmap ? "visible" : "none");
   }, [heatmap, mapReady]);
 
+  // Basemap switcher: flip ESRI raster-layer visibility. Offline → all hidden (blank plane + graticule).
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map || !mapReady) return;
+    for (const { id } of basemapLabels()) {
+      if (id === "offline") continue;
+      const layerId = `${id}-layer`; // registry layerId, e.g. "esri-imagery" → "esri-imagery-layer"
+      if (map.getLayer(layerId)) {
+        map.setLayoutProperty(layerId, "visibility", basemap === id ? "visible" : "none");
+      }
+    }
+  }, [basemap, mapReady]);
+
   const placed = (data?.length ?? 0) - unplaceable;
 
   return (
@@ -200,6 +229,19 @@ export default function RfMap() {
       title="RF Map"
       legend={
         <Box sx={{ display: "flex", alignItems: "center", gap: 2, flexWrap: "wrap" }}>
+          <ToggleButtonGroup
+            size="small"
+            exclusive
+            value={basemap}
+            onChange={(_, v) => { if (v) setBasemap(v as BasemapId); }}
+            aria-label="Basemap"
+          >
+            {basemapLabels().map((b) => (
+              <ToggleButton key={b.id} value={b.id} sx={{ textTransform: "none", px: 1 }}>
+                {b.label}
+              </ToggleButton>
+            ))}
+          </ToggleButtonGroup>
           <FormControlLabel
             control={
               <Switch
@@ -260,6 +302,26 @@ export default function RfMap() {
           >
             <Typography variant="caption" color="text.secondary">
               {unplaceable} unplaceable emitter{unplaceable === 1 ? "" : "s"}
+            </Typography>
+          </Box>
+        )}
+        {attributionFor(basemap) && (
+          <Box
+            sx={{
+              position: "absolute",
+              right: 8,
+              bottom: 8,
+              px: 1,
+              py: 0.25,
+              borderRadius: 1,
+              bgcolor: "background.paper",
+              border: 1,
+              borderColor: "divider",
+              maxWidth: "70%",
+            }}
+          >
+            <Typography variant="caption" color="text.secondary" sx={{ fontSize: 10 }}>
+              {attributionFor(basemap)}
             </Typography>
           </Box>
         )}
