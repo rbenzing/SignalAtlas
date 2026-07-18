@@ -173,7 +173,8 @@ public static class IqIngressEndpoint
             demodulators: sp.GetServices<IDemodulator>(),
             registry: sp.GetService<IDecoderRegistry>(),
             resolver: sp.GetService<IDeviceResolver>(),
-            devices: sp.GetService<IDeviceRepository>());
+            devices: sp.GetService<IDeviceRepository>(),
+            cpr: sp.GetService<ICprPositionResolver>());
     }
 
     private static async Task<(WebSocketMessageType Kind, byte[] Payload)> ReceiveAsync(

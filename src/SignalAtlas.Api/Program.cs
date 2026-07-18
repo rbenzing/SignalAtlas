@@ -98,6 +98,7 @@ builder.Services.AddSingleton<IDeviceResolver, DeviceResolver>();
 
 // IQ→frame demodulators feeding the live decode stage (SPEC §8.4). ADS-B is the first.
 builder.Services.AddSingleton<IDemodulator, AdsBDemodulator>();
+builder.Services.AddSingleton<ICprPositionResolver, CprPositionResolver>();
 
 // Edge signal-processing / classification / correlation / anomaly engines (SPEC §8.2/§8.3/§8.5/§8.8).
 // Registered here (the composition root) so the live ingestion pipeline can resolve them.

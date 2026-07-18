@@ -40,6 +40,7 @@ public sealed class IngestionPipeline
     private readonly IDecoderRegistry? _registry;
     private readonly IDeviceResolver? _resolver;
     private readonly IDeviceRepository? _devices;
+    private readonly ICprPositionResolver? _cpr;
 
     public IngestionPipeline(
         string collectorId,
@@ -58,7 +59,8 @@ public sealed class IngestionPipeline
         IEnumerable<IDemodulator>? demodulators = null,
         IDecoderRegistry? registry = null,
         IDeviceResolver? resolver = null,
-        IDeviceRepository? devices = null)
+        IDeviceRepository? devices = null,
+        ICprPositionResolver? cpr = null)
     {
         _collector = new ScanCollector(collectorId, clock, position);
         _processor = processor ?? throw new ArgumentNullException(nameof(processor));
@@ -82,6 +84,7 @@ public sealed class IngestionPipeline
         _registry = registry;
         _resolver = resolver;
         _devices = devices;
+        _cpr = cpr;
     }
 
     public IngestionResult Run(ISampleSource source, CancellationToken ct = default)
@@ -155,6 +158,20 @@ public sealed class IngestionPipeline
                     var device = _resolver.Resolve(group.ToList());
                     if (device is not null)
                     {
+                        // Stamp self-reported position from any airborne-position frame in this
+                        // ICAO group (CPR resolved against the even/odd pairing cache).
+                        if (_cpr is not null)
+                        {
+                            foreach (var f in group)
+                            {
+                                if (f.Cpr is not { } c) continue;
+                                var pos = _cpr.Accept(group.Key.StartsWith("icao:") ? group.Key[5..] : group.Key,
+                                    c.Odd, c.CprLat17, c.CprLon17, obs.Time);
+                                device = device with { AltitudeFt = c.AltitudeFt };
+                                if (pos is not null)
+                                    device = device with { Latitude = pos.Latitude, Longitude = pos.Longitude };
+                            }
+                        }
                         _devices.Upsert(device);
                         _notifier.DeviceDetermined(device);
                     }

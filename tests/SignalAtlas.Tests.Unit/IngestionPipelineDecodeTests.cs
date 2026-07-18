@@ -70,6 +70,46 @@ public class IngestionPipelineDecodeTests
             resolver: new DeviceResolver(new OuiLookup()),
             devices: devices);
 
+    private static IngestionPipeline BuildWithCpr(CapturingDeviceRepo devices, CapturingNotifier notifier) =>
+        new(
+            collectorId: "adsb-test",
+            clock: new FixedClock(new DateTimeOffset(2026, 7, 18, 12, 0, 0, TimeSpan.Zero)),
+            position: new StaticPositionSource(null),
+            processor: new SignalProcessor(),
+            classifier: new RuleBasedClassifier(),
+            correlation: new WeightedCorrelationEngine(),
+            anomaly: new AnomalyEngine(),
+            observations: new NoopObs(),
+            signals: new NoopSignals(),
+            notifier: notifier,
+            demodulators: [new AdsBDemodulator()],
+            registry: new DecoderRegistry([new AdsBDecoder()]),
+            resolver: new DeviceResolver(new OuiLookup()),
+            devices: devices,
+            cpr: new CprPositionResolver());
+
+    [Fact]
+    public void Run_AirbornePositionPair_StampsAircraftPosition()
+    {
+        // Even + odd canonical frames for ICAO 40621D → a fix near (52.26, 3.92).
+        // Default lead/trail slots (4/4) — same pattern as the Stage-1 two-frame test.
+        var even = AdsBModulator.Modulate(Hex("8D40621D58C382D690C8AC2863A7"));
+        var odd = AdsBModulator.Modulate(Hex("8D40621D58C386435CC412692AD6"));
+        var i = even.I.Concat(odd.I).ToArray();
+        var q = even.Q.Concat(odd.Q).ToArray();
+        var block = new IqBlock(1_090_000_000, 2_000_000, i, q);
+        var devices = new CapturingDeviceRepo();
+
+        BuildWithCpr(devices, new CapturingNotifier()).Run(new OneBlockSource(block));
+
+        var d = Assert.Single(devices.Upserts);
+        Assert.Equal("40621D", d.Identifiers["icao"]);
+        Assert.NotNull(d.Latitude);
+        Assert.InRange(d.Latitude!.Value, 52.2, 52.3);
+        Assert.InRange(d.Longitude!.Value, 3.85, 3.95);
+        Assert.Equal(38000, d.AltitudeFt);
+    }
+
     [Fact]
     public void Run_BlockWithAdsBFrame_UpsertsAircraftAndPushesDeviceDetermined()
     {

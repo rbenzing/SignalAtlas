@@ -66,7 +66,8 @@ public sealed class PipelineHostedService(
             demodulators: sp.GetServices<IDemodulator>(),
             registry: sp.GetService<IDecoderRegistry>(),
             resolver: sp.GetService<IDeviceResolver>(),
-            devices: sp.GetService<IDeviceRepository>());
+            devices: sp.GetService<IDeviceRepository>(),
+            cpr: sp.GetService<ICprPositionResolver>());
 
         // Honors the host stopping token (SPEC §5.5): a shutdown cancels the in-flight Run promptly and
         // disposes the source (the source enumerator's finally releases the device).
