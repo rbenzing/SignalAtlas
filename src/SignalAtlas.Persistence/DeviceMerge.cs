@@ -26,6 +26,9 @@ internal static class DeviceMerge
             Evidence = evidence,
             PrimaryIdentifier = incoming.PrimaryIdentifier ?? existing.PrimaryIdentifier,
             Vendor = incoming.Vendor ?? existing.Vendor,
+            Latitude = incoming.Latitude ?? existing.Latitude,
+            Longitude = incoming.Longitude ?? existing.Longitude,
+            AltitudeFt = incoming.AltitudeFt ?? existing.AltitudeFt,
         };
     }
 }

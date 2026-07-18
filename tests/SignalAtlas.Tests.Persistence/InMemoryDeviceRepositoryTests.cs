@@ -25,6 +25,10 @@ public sealed class InMemoryDeviceRepositoryTests
                 : new Dictionary<string, string> { ["icao"] = icao, ["callsign"] = callsign }),
             null, "ADS-B", 1.0, [new EvidenceItem("icao", icao, 1.0)]);
 
+    private static Device AircraftAt(string icao, double lat, double lon, int altFt) =>
+        new(icao, "Aircraft", icao, new Dictionary<string, string> { ["icao"] = icao },
+            null, "ADS-B", 1.0, [new EvidenceItem("icao", icao, 1.0)], lat, lon, altFt);
+
     private static InMemoryDeviceRepository New()
     {
         var repo = new InMemoryDeviceRepository(new FakeResolver());
@@ -83,5 +87,17 @@ public sealed class InMemoryDeviceRepositoryTests
 
         var got = Assert.Single(repo.GetDevices());
         Assert.Equal("KLM1023", got.Identifiers["callsign"]); // callsign survives the icao-only upsert
+    }
+
+    [Fact]
+    public void Upsert_PositionThenIdentityOnly_RetainsPosition()
+    {
+        var repo = New();
+        repo.Upsert(AircraftAt("4840D6", 52.2572, 3.91937, 38000)); // position fix
+        repo.Upsert(Aircraft("4840D6", "KLM1023"));                 // later identity frame, no position
+
+        var got = Assert.Single(repo.GetDevices());
+        Assert.Equal(52.2572, got.Latitude);        // position survives
+        Assert.Equal("KLM1023", got.Identifiers["callsign"]);
     }
 }

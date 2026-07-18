@@ -120,6 +120,20 @@ public sealed class WritePathRoundTripTests : IDisposable
     }
 
     [Fact]
+    public void Device_Upsert_RoundTripsPosition()
+    {
+        var d = new Device("4840D6", "Aircraft", "4840D6",
+            new Dictionary<string, string> { ["icao"] = "4840D6" }, null, "ADS-B", 1.0,
+            [new EvidenceItem("icao", "4840D6", 1.0)], 52.2572, 3.91937, 38000);
+        new EfDeviceRepository(NewContext()).Upsert(d);
+
+        var got = Assert.Single(new EfDeviceRepository(NewContext()).GetDevices());
+        Assert.Equal(52.2572, got.Latitude);
+        Assert.Equal(3.91937, got.Longitude);
+        Assert.Equal(38000, got.AltitudeFt);
+    }
+
+    [Fact]
     public void Alert_Add_Then_Read_RoundTrips()
     {
         var alert = new Alert(

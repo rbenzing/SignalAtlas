@@ -39,7 +39,10 @@ public sealed record Device(
     string? Vendor,
     string Protocol,
     double Confidence,
-    IReadOnlyList<EvidenceItem> Evidence);
+    IReadOnlyList<EvidenceItem> Evidence,
+    double? Latitude = null,
+    double? Longitude = null,
+    int? AltitudeFt = null);
 
 /// <summary>
 /// Decodes a single protocol's demodulated frame bytes into a <see cref="DecodedFrame"/>
