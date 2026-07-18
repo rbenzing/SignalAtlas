@@ -17,7 +17,11 @@
 // blank+graticule offline default and does NOT require the .pmtiles file to
 // exist, so the build never depends on shipping one.
 
-import maplibregl, { type StyleSpecification } from "maplibre-gl";
+import maplibregl, {
+  type StyleSpecification,
+  type LayerSpecification,
+  type RasterSourceSpecification,
+} from "maplibre-gl";
 import { Protocol } from "pmtiles";
 import { blankStyle } from "./rfmap";
 import type { ColorMode } from "../theme/palette";
@@ -56,4 +60,91 @@ export function resolveBaseStyle(mode: ColorMode): string | StyleSpecification {
     return configured;
   }
   return blankStyle(mode);
+}
+
+export type BasemapId = "offline" | "esri-imagery" | "esri-street" | "esri-topo";
+
+export interface EsriBasemap {
+  id: Exclude<BasemapId, "offline">;
+  label: string;
+  sourceId: string;
+  layerId: string;
+  tiles: string[];
+  attribution: string;
+  maxzoom: number;
+}
+
+const ESRI_BASE = "https://server.arcgisonline.com/ArcGIS/rest/services";
+
+const ESRI_BASEMAPS: EsriBasemap[] = [
+  {
+    id: "esri-imagery",
+    label: "Satellite",
+    sourceId: "esri-imagery-src",
+    layerId: "esri-imagery-layer",
+    tiles: [`${ESRI_BASE}/World_Imagery/MapServer/tile/{z}/{y}/{x}`],
+    attribution: "Powered by Esri — Source: Esri, Maxar, Earthstar Geographics, and the GIS User Community",
+    maxzoom: 19,
+  },
+  {
+    id: "esri-street",
+    label: "Street",
+    sourceId: "esri-street-src",
+    layerId: "esri-street-layer",
+    tiles: [`${ESRI_BASE}/World_Street_Map/MapServer/tile/{z}/{y}/{x}`],
+    attribution: "Powered by Esri — Source: Esri, HERE, Garmin, USGS, NGA, EPA, USDA, NPS",
+    maxzoom: 19,
+  },
+  {
+    id: "esri-topo",
+    label: "Topo",
+    sourceId: "esri-topo-src",
+    layerId: "esri-topo-layer",
+    tiles: [`${ESRI_BASE}/World_Topo_Map/MapServer/tile/{z}/{y}/{x}`],
+    attribution: "Powered by Esri — Source: Esri, HERE, Garmin, FAO, NOAA, USGS, © OpenStreetMap contributors",
+    maxzoom: 19,
+  },
+];
+
+/** The three ESRI raster basemap definitions. */
+export function esriBasemaps(): EsriBasemap[] {
+  return ESRI_BASEMAPS;
+}
+
+/** Raster source+layer pairs for each ESRI basemap; layers start hidden (offline-first).
+ *  `sourceId` is the id the map wiring passes to `map.addSource(sourceId, source)`. */
+export function rasterSourcesAndLayers(): { sourceId: string; source: RasterSourceSpecification; layer: LayerSpecification }[] {
+  return ESRI_BASEMAPS.map((b) => ({
+    sourceId: b.sourceId,
+    source: {
+      type: "raster",
+      tiles: b.tiles,
+      tileSize: 256,
+      maxzoom: b.maxzoom,
+      attribution: b.attribution,
+    } as RasterSourceSpecification,
+    layer: {
+      id: b.layerId,
+      type: "raster",
+      source: b.sourceId,
+      layout: { visibility: "none" },
+    } as unknown as LayerSpecification,
+  }));
+}
+
+/** Switcher options: Offline first, then the three ESRI basemaps. */
+export function basemapLabels(): { id: BasemapId; label: string }[] {
+  return [{ id: "offline" as BasemapId, label: "Offline" }, ...ESRI_BASEMAPS.map((b) => ({ id: b.id as BasemapId, label: b.label }))];
+}
+
+/** Default basemap: an ESRI id iff VITE_BASEMAP_STYLE names one, else offline (no external calls). */
+export function defaultBasemapId(): BasemapId {
+  const v = (import.meta.env.VITE_BASEMAP_STYLE as string | undefined)?.trim();
+  const match = ESRI_BASEMAPS.find((b) => b.id === v);
+  return match ? match.id : "offline";
+}
+
+/** Attribution text for the active basemap, or null for offline. */
+export function attributionFor(id: BasemapId): string | null {
+  return ESRI_BASEMAPS.find((b) => b.id === id)?.attribution ?? null;
 }
