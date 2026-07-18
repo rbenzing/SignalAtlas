@@ -1,10 +1,12 @@
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, afterEach, vi } from "vitest";
 import {
   esriBasemaps,
   rasterSourcesAndLayers,
   basemapLabels,
   defaultBasemapId,
   attributionFor,
+  configuredBasemapStyle,
+  resolveBaseStyle,
 } from "./basemap";
 
 describe("ESRI basemap registry", () => {
@@ -42,5 +44,21 @@ describe("ESRI basemap registry", () => {
     expect(defaultBasemapId()).toBe("offline"); // VITE_BASEMAP_STYLE unset in test env
     expect(attributionFor("offline")).toBeNull();
     expect(attributionFor("esri-imagery")).not.toBeNull();
+  });
+});
+
+describe("VITE_BASEMAP_STYLE handling", () => {
+  afterEach(() => vi.unstubAllEnvs());
+
+  it("treats an ESRI id as the switcher default, not a style URL", () => {
+    vi.stubEnv("VITE_BASEMAP_STYLE", "esri-imagery");
+    expect(configuredBasemapStyle()).toBeUndefined(); // NOT returned as a style URL
+    expect(defaultBasemapId()).toBe("esri-imagery"); // becomes the switcher default
+    expect(typeof resolveBaseStyle("light")).not.toBe("string"); // falls back to the blank StyleSpecification
+  });
+
+  it("still passes a real custom style URL through", () => {
+    vi.stubEnv("VITE_BASEMAP_STYLE", "/basemap.json");
+    expect(configuredBasemapStyle()).toBe("/basemap.json");
   });
 });

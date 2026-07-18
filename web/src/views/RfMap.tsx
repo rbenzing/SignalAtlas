@@ -50,6 +50,7 @@ import {
   basemapLabels,
   defaultBasemapId,
   attributionFor,
+  esriBasemaps,
   type BasemapId,
 } from "../lib/basemap";
 
@@ -213,11 +214,9 @@ export default function RfMap() {
   useEffect(() => {
     const map = mapRef.current;
     if (!map || !mapReady) return;
-    for (const { id } of basemapLabels()) {
-      if (id === "offline") continue;
-      const layerId = `${id}-layer`; // registry layerId, e.g. "esri-imagery" → "esri-imagery-layer"
-      if (map.getLayer(layerId)) {
-        map.setLayoutProperty(layerId, "visibility", basemap === id ? "visible" : "none");
+    for (const b of esriBasemaps()) {
+      if (map.getLayer(b.layerId)) {
+        map.setLayoutProperty(b.layerId, "visibility", basemap === b.id ? "visible" : "none");
       }
     }
   }, [basemap, mapReady]);
@@ -290,8 +289,8 @@ export default function RfMap() {
           <Box
             sx={{
               position: "absolute",
+              top: 8,
               left: 8,
-              bottom: 8,
               px: 1,
               py: 0.5,
               borderRadius: 1,
@@ -309,7 +308,7 @@ export default function RfMap() {
           <Box
             sx={{
               position: "absolute",
-              right: 8,
+              left: 8,
               bottom: 8,
               px: 1,
               py: 0.25,

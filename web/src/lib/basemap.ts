@@ -36,11 +36,15 @@ export function registerPmtilesProtocol(): void {
   pmtilesRegistered = true;
 }
 
-/** The configured basemap style URL/path, or undefined for the offline default. */
+/** The configured basemap style URL/path, or undefined for the offline default.
+ *  An ESRI basemap id (e.g. "esri-imagery") is NOT a style URL — it is handled by the runtime
+ *  switcher (raster layers + defaultBasemapId), so treat it as "no custom style" here. */
 export function configuredBasemapStyle(): string | undefined {
   const v = import.meta.env.VITE_BASEMAP_STYLE as string | undefined;
   const trimmed = v?.trim();
-  return trimmed ? trimmed : undefined;
+  if (!trimmed) return undefined;
+  if (ESRI_BASEMAPS.some((b) => b.id === trimmed)) return undefined; // handled by the switcher, not as a style URL
+  return trimmed;
 }
 
 /** True when a real basemap is configured (emitter/graticule layers sit on top). */
