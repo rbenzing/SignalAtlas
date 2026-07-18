@@ -80,3 +80,17 @@ public interface IOuiLookup
     string? Vendor(string mac);
     bool IsLocallyAdministered(string mac);
 }
+
+/// <summary>A decoded geographic position (WGS-84 degrees). Aircraft self-reported location (L2).</summary>
+public sealed record GeoPosition(double Latitude, double Longitude);
+
+/// <summary>
+/// Resolves ADS-B airborne CPR frames into an absolute position via global (even/odd) decoding.
+/// Stateful: caches the last even + last odd frame per ICAO and returns a fix once it holds a
+/// consistent pair within the pairing window. Deterministic — position depends only on the frame
+/// values and the caller-supplied timestamps (IClock-sourced), never a wall clock.
+/// </summary>
+public interface ICprPositionResolver
+{
+    GeoPosition? Accept(string icao, bool odd, int cprLat17, int cprLon17, DateTimeOffset time);
+}
