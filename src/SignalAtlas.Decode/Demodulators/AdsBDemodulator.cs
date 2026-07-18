@@ -7,6 +7,8 @@ namespace SignalAtlas.Decode.Demodulators;
 /// IQ into candidate 14-byte frames by envelope detection → preamble correlation → PPM bit-slicing.
 /// CRC is NOT checked here — <c>AdsBDecoder</c> validates it, so noise candidates are rejected
 /// downstream. Pure DSP: deterministic, receive-only, reads only the magnitude envelope (L1/L2/P5).
+/// Requires an even-MHz sample rate (2 MS/s is what the ADS-B preset tunes and what is tested) — the
+/// half-µs slot grid needs an integer number of samples per slot, so other rates are declined cleanly.
 /// </summary>
 public sealed class AdsBDemodulator : IDemodulator
 {
@@ -28,6 +30,12 @@ public sealed class AdsBDemodulator : IDemodulator
 
         int hus = (block.SampleRateHz / 1_000_000) / 2; // samples per half-µs slot
         if (hus < 1) yield break;                        // need >= 2 MS/s
+
+        // The half-µs slot grid needs an integer number of samples per slot, so the rate must be an
+        // even number of MHz (2 MS/s is what the ADS-B preset tunes and what is tested). A fractional
+        // rate (e.g. 2.4 MS/s) would misalign the 240-slot frame, so decline cleanly instead of
+        // emitting misaligned garbage for the decoder to CRC-reject.
+        if (block.SampleRateHz % 2_000_000 != 0) yield break;
 
         float[] iCh = block.I, qCh = block.Q;
         int n = iCh.Length;

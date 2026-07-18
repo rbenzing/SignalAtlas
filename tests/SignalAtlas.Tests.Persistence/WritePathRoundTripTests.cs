@@ -110,6 +110,16 @@ public sealed class WritePathRoundTripTests : IDisposable
     }
 
     [Fact]
+    public void Device_Upsert_LaterIcaoOnlyFrame_RetainsCallsign()
+    {
+        new EfDeviceRepository(NewContext()).Upsert(SampleDevice("4840D6", "KLM1023"));
+        new EfDeviceRepository(NewContext()).Upsert(SampleDevice("4840D6", null));
+
+        var got = Assert.Single(new EfDeviceRepository(NewContext()).GetDevices());
+        Assert.Equal("KLM1023", got.Identifiers["callsign"]);
+    }
+
+    [Fact]
     public void Alert_Add_Then_Read_RoundTrips()
     {
         var alert = new Alert(

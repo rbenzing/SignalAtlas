@@ -35,14 +35,17 @@ public sealed class InMemoryDeviceRepository : IDeviceRepository, IDemoSeedStore
 
     private const int MaxDevices = 2000;
 
-    /// <summary>Idempotent, newest-first, bounded upsert (SPEC §8.4). Replaces any existing row with
-    /// the same id, then prepends, so live re-sightings of one aircraft stay a single entry.</summary>
+    /// <summary>Idempotent, newest-first, bounded upsert (SPEC §8.4). Merges into any existing row with
+    /// the same id (see <see cref="DeviceMerge"/>) so identity accumulates across blocks instead of
+    /// being replaced, then prepends, so live re-sightings of one aircraft stay a single entry.</summary>
     public void Upsert(Device device)
     {
         lock (_sync)
         {
-            _devices.RemoveAll(d => string.Equals(d.Id, device.Id, StringComparison.Ordinal));
-            _devices.Insert(0, device);
+            var existing = _devices.FirstOrDefault(d => string.Equals(d.Id, device.Id, StringComparison.Ordinal));
+            var merged = existing is null ? device : DeviceMerge.Merge(existing, device);
+            _devices.RemoveAll(d => string.Equals(d.Id, merged.Id, StringComparison.Ordinal));
+            _devices.Insert(0, merged);
             if (_devices.Count > MaxDevices)
                 _devices.RemoveRange(MaxDevices, _devices.Count - MaxDevices);
         }

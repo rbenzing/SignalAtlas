@@ -40,14 +40,16 @@ public sealed class EfDeviceRepository(SignalAtlasDbContext db) : IDeviceReposit
     public IReadOnlyList<Device> GetDevices(int limit = 100) =>
         db.Devices.OrderBy(d => d.Id).Take(limit).ToList();
 
-    /// <summary>Idempotent insert-or-update keyed on the deterministic device id (SPEC §8.4).</summary>
+    /// <summary>Idempotent insert-or-update keyed on the deterministic device id (SPEC §8.4). Merges
+    /// into an existing row (see <see cref="DeviceMerge"/>) so identity accumulates across blocks
+    /// instead of a later frame silently erasing an earlier one's identifiers/evidence.</summary>
     public void Upsert(Device device)
     {
         var existing = db.Devices.Find(device.Id);
         if (existing is null)
             db.Devices.Add(device);
         else
-            db.Entry(existing).CurrentValues.SetValues(device);
+            db.Entry(existing).CurrentValues.SetValues(DeviceMerge.Merge(existing, device));
         db.SaveChanges();
     }
 }

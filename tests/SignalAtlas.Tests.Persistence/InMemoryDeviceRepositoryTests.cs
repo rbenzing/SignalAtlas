@@ -73,4 +73,15 @@ public sealed class InMemoryDeviceRepositoryTests
         Parallel.For(0, 200, _ => repo.Upsert(Aircraft("4840D6")));
         Assert.Single(repo.GetDevices());
     }
+
+    [Fact]
+    public void Upsert_LaterIcaoOnlyFrame_RetainsEarlierCallsign()
+    {
+        var repo = New();
+        repo.Upsert(Aircraft("4840D6", "KLM1023")); // identification squitter (has callsign)
+        repo.Upsert(Aircraft("4840D6"));            // later position squitter (icao only)
+
+        var got = Assert.Single(repo.GetDevices());
+        Assert.Equal("KLM1023", got.Identifiers["callsign"]); // callsign survives the icao-only upsert
+    }
 }

@@ -88,6 +88,14 @@ public class AdsBDemodulatorTests
     }
 
     [Fact]
+    public void Demodulate_NonEvenMhzSampleRate_YieldsNothing()
+    {
+        // 3 MS/s is not an even number of MHz → slot math can't align → clean no-op, not garbage.
+        var block = AdsBModulator.Modulate(Hex(GoldenHex), sampleRateHz: 3_000_000);
+        Assert.Empty(Demod.Demodulate(block, Features()).ToList());
+    }
+
+    [Fact]
     public void Demodulate_TwoFramesInOneBlock_RecoversBoth()
     {
         // Concatenate two modulated frames into one block's I/Q.
