@@ -5,7 +5,7 @@
 import type { StyleSpecification, LayerSpecification } from "maplibre-gl";
 import type { FeatureCollection, Point, LineString } from "geojson";
 import { chartTokens, protocolColor, type ColorMode } from "../theme/palette";
-import type { Emitter } from "../api";
+import type { Emitter, Device } from "../api";
 
 export const RF_SOURCE = "emitters";
 export const RF_UNCERTAINTY_LAYER = "emitter-uncertainty";
@@ -243,6 +243,57 @@ export function graticuleLayer(mode: ColorMode): LayerSpecification {
       "line-color": chartTokens[mode].grid,
       "line-width": 0.5,
       "line-opacity": 0.7,
+    },
+  } as unknown as LayerSpecification;
+}
+
+export const AIRCRAFT_SOURCE = "aircraft";
+export const AIRCRAFT_POINT_LAYER = "aircraft-points";
+
+/** Distinct aircraft marker color (amber) — deliberately NOT a protocol color. */
+const AIRCRAFT_COLOR = "#f5a623";
+
+export interface AircraftFeatureProps {
+  id: string;
+  callsign: string;
+  icao: string;
+  altitudeFt: number | null;
+}
+
+/** Aircraft (devices with a self-reported CPR fix) → point GeoJSON; positionless devices excluded. */
+export function aircraftToGeoJSON(
+  devices: Device[],
+): FeatureCollection<Point, AircraftFeatureProps> {
+  const features: FeatureCollection<Point, AircraftFeatureProps>["features"] = [];
+  for (const d of devices) {
+    const lat = d.latitude;
+    const lon = d.longitude;
+    if (lat === null || lon === null || !Number.isFinite(lat) || !Number.isFinite(lon)) continue;
+    features.push({
+      type: "Feature",
+      geometry: { type: "Point", coordinates: [lon, lat] },
+      properties: {
+        id: d.id,
+        callsign: d.identifiers?.callsign ?? "",
+        icao: d.identifiers?.icao ?? d.id,
+        altitudeFt: d.altitudeFt,
+      },
+    });
+  }
+  return { type: "FeatureCollection", features };
+}
+
+/** Aircraft marker layer — a distinct amber circle (offline style has no sprites/glyphs for icons). */
+export function aircraftLayer(mode: ColorMode): LayerSpecification {
+  return {
+    id: AIRCRAFT_POINT_LAYER,
+    type: "circle",
+    source: AIRCRAFT_SOURCE,
+    paint: {
+      "circle-radius": 5,
+      "circle-color": AIRCRAFT_COLOR,
+      "circle-stroke-color": chartTokens[mode].surface,
+      "circle-stroke-width": 2,
     },
   } as unknown as LayerSpecification;
 }

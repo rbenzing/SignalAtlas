@@ -39,6 +39,9 @@ export interface Device {
   protocol: string;
   confidence: number;
   evidence: EvidenceItem[];
+  latitude: number | null;
+  longitude: number | null;
+  altitudeFt: number | null;
 }
 
 export interface Emitter {

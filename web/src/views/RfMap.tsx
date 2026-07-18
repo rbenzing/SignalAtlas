@@ -24,18 +24,22 @@ import Loading from "../components/Loading";
 import ErrorState from "../components/ErrorState";
 import { useColorMode } from "../theme/ColorModeContext";
 import { chartTokens, protocolColor, protocolLabels } from "../theme/palette";
-import { getEmitters, usePolling, type Emitter } from "../api";
+import { getEmitters, getDevices, usePolling, type Emitter, type Device } from "../api";
 import {
   emittersToGeoJSON,
   rfLayers,
   buildGraticule,
   graticuleSpacing,
   graticuleLayer,
+  aircraftToGeoJSON,
+  aircraftLayer,
   RF_SOURCE,
   RF_POINT_LAYER,
   RF_HEATMAP_LAYER,
   RF_GRATICULE_SOURCE,
   RF_GRATICULE_LAYER,
+  AIRCRAFT_SOURCE,
+  AIRCRAFT_POINT_LAYER,
 } from "../lib/rfmap";
 import { resolveBaseStyle } from "../lib/basemap";
 
@@ -57,17 +61,21 @@ function DetailRow({ label, value }: { label: string; value: React.ReactNode }) 
 export default function RfMap() {
   const { mode } = useColorMode();
   const { data, loading, error } = usePolling(getEmitters, 5000);
+  const devices = usePolling(getDevices, 5000);
 
   const containerRef = useRef<HTMLDivElement | null>(null);
   const mapRef = useRef<MapLibreMap | null>(null);
   const dataRef = useRef<Emitter[]>([]);
+  const aircraftRef = useRef<Device[]>([]);
   const fittedRef = useRef(false);
   const [mapReady, setMapReady] = useState(false);
   const [heatmap, setHeatmap] = useState(false);
   const [unplaceable, setUnplaceable] = useState(0);
   const [selected, setSelected] = useState<Emitter | null>(null);
+  const [selectedAircraft, setSelectedAircraft] = useState<Device | null>(null);
 
   dataRef.current = data ?? [];
+  aircraftRef.current = devices.data ?? [];
 
   // Init the map once; add the source, layers, and interactions on load.
   useEffect(() => {
@@ -124,6 +132,16 @@ export default function RfMap() {
       map.on("click", RF_POINT_LAYER, onClick);
       map.on("mouseenter", RF_POINT_LAYER, onEnter);
       map.on("mouseleave", RF_POINT_LAYER, onLeave);
+
+      map.addSource(AIRCRAFT_SOURCE, { type: "geojson", data: { type: "FeatureCollection", features: [] } });
+      map.addLayer(aircraftLayer(mode));
+      map.on("click", AIRCRAFT_POINT_LAYER, (e) => {
+        const id = e.features?.[0]?.properties?.id as string | undefined;
+        if (id) setSelectedAircraft(aircraftRef.current.find((a) => a.id === id) ?? null);
+      });
+      map.on("mouseenter", AIRCRAFT_POINT_LAYER, onEnter);
+      map.on("mouseleave", AIRCRAFT_POINT_LAYER, onLeave);
+
       map.on("moveend", updateGraticule);
       updateGraticule();
       setMapReady(true);
@@ -153,6 +171,10 @@ export default function RfMap() {
     map.setPaintProperty(RF_GRATICULE_LAYER, "line-color", chartTokens[mode].grid);
     map.setPaintProperty(RF_POINT_LAYER, "circle-stroke-color", chartTokens[mode].surface);
 
+    const aSrc = map.getSource(AIRCRAFT_SOURCE) as GeoJSONSource | undefined;
+    aSrc?.setData(aircraftToGeoJSON(devices.data ?? []));
+    map.setPaintProperty(AIRCRAFT_POINT_LAYER, "circle-stroke-color", chartTokens[mode].surface);
+
     if (!fittedRef.current && fc.features.length > 0) {
       const bounds = new LngLatBounds();
       for (const f of fc.features) {
@@ -161,7 +183,7 @@ export default function RfMap() {
       map.fitBounds(bounds, { padding: 64, maxZoom: 16, duration: 0 });
       fittedRef.current = true;
     }
-  }, [data, mode, mapReady]);
+  }, [data, devices.data, mode, mapReady]);
 
   // Heatmap layer visibility toggle.
   useEffect(() => {
@@ -188,6 +210,17 @@ export default function RfMap() {
             label={<Typography variant="caption">Heatmap</Typography>}
           />
           <ProtocolLegend />
+          <Box sx={{ display: "flex", alignItems: "center", gap: 0.5 }}>
+            <Box
+              sx={{
+                width: 10,
+                height: 10,
+                borderRadius: "50%",
+                bgcolor: "#f5a623",
+              }}
+            />
+            <Typography variant="caption">Aircraft</Typography>
+          </Box>
         </Box>
       }
     >
@@ -302,6 +335,74 @@ export default function RfMap() {
                 Evidence
               </Typography>
               <EvidenceList items={selected.evidence} />
+            </>
+          )}
+        </Box>
+      </Drawer>
+
+      <Drawer
+        anchor="right"
+        open={selectedAircraft !== null}
+        onClose={() => setSelectedAircraft(null)}
+      >
+        <Box sx={{ width: 340, p: 2 }}>
+          {selectedAircraft && (
+            <>
+              <Box sx={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+                <Box sx={{ display: "flex", alignItems: "center", gap: 1 }}>
+                  <Box
+                    sx={{
+                      width: 12,
+                      height: 12,
+                      borderRadius: "50%",
+                      bgcolor: "#f5a623",
+                    }}
+                  />
+                  <Typography variant="h6">
+                    {selectedAircraft.identifiers?.callsign?.trim() || selectedAircraft.id}
+                  </Typography>
+                </Box>
+                <IconButton
+                  size="small"
+                  aria-label="Close"
+                  onClick={() => setSelectedAircraft(null)}
+                >
+                  <CloseIcon fontSize="small" />
+                </IconButton>
+              </Box>
+              <Typography variant="caption" color="text.secondary">
+                {selectedAircraft.id}
+              </Typography>
+
+              <Divider sx={{ my: 1.5 }} />
+              <Stack spacing={0.75}>
+                <DetailRow
+                  label="ICAO"
+                  value={selectedAircraft.identifiers?.icao ?? selectedAircraft.id}
+                />
+                <DetailRow
+                  label="Altitude"
+                  value={
+                    selectedAircraft.altitudeFt === null
+                      ? "—"
+                      : `${selectedAircraft.altitudeFt.toLocaleString()} ft`
+                  }
+                />
+                <DetailRow
+                  label="Position"
+                  value={
+                    selectedAircraft.latitude === null || selectedAircraft.longitude === null
+                      ? "—"
+                      : `${selectedAircraft.latitude.toFixed(4)}, ${selectedAircraft.longitude.toFixed(4)}`
+                  }
+                />
+              </Stack>
+
+              <Divider sx={{ my: 1.5 }} />
+              <Typography variant="subtitle2" sx={{ mb: 0.5 }}>
+                Evidence
+              </Typography>
+              <EvidenceList items={selectedAircraft.evidence} />
             </>
           )}
         </Box>
