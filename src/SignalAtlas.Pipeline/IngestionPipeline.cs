@@ -167,7 +167,8 @@ public sealed class IngestionPipeline
                                 if (f.Cpr is not { } c) continue;
                                 var pos = _cpr.Accept(group.Key.StartsWith("icao:") ? group.Key[5..] : group.Key,
                                     c.Odd, c.CprLat17, c.CprLon17, obs.Time);
-                                device = device with { AltitudeFt = c.AltitudeFt };
+                                if (c.AltitudeFt is { } altFt)
+                                    device = device with { AltitudeFt = altFt };
                                 if (pos is not null)
                                     device = device with { Latitude = pos.Latitude, Longitude = pos.Longitude };
                             }

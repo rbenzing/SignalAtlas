@@ -18,7 +18,7 @@ public sealed record DecodedFrame(
 /// the position resolver to consume — NEVER merged into a Device's identifiers/evidence (these
 /// values change every frame). Null for non-position frames.
 /// </summary>
-public sealed record CprPosition(bool Odd, int CprLat17, int CprLon17, int AltitudeFt);
+public sealed record CprPosition(bool Odd, int CprLat17, int CprLon17, int? AltitudeFt);
 
 /// <summary>Outcome of a decode attempt. A frame is produced only when the CRC/FCS passes (AC-D6).</summary>
 public sealed record DecodeOutcome(bool Success, DecodedFrame? Frame, string? RejectReason)

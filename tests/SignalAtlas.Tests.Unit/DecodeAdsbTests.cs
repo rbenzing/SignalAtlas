@@ -160,4 +160,44 @@ public class DecodeAdsbTests
         Assert.Null(outcome.Frame!.Cpr);
         Assert.Equal("extended_squitter", outcome.Frame.FrameType);
     }
+
+    private static void WriteBits(byte[] msg, int startBit, int count, int value)
+    {
+        for (int i = 0; i < count; i++)
+        {
+            int bit = startBit + i;
+            int b = (value >> (count - 1 - i)) & 1;
+            if (b != 0) msg[bit >> 3] |= (byte)(0x80 >> (bit & 7));
+            else msg[bit >> 3] &= (byte)~(0x80 >> (bit & 7));
+        }
+    }
+
+    // Craft a DF17 TC=11 airborne-position frame with a chosen 12-bit AC altitude field + valid parity.
+    private static byte[] CraftPosition(string icaoHex, bool odd, int cprLat17, int cprLon17, int ac12)
+    {
+        var f = new byte[14];
+        f[0] = 17 << 3;                       // DF17
+        var icao = Hex(icaoHex);
+        f[1] = icao[0]; f[2] = icao[1]; f[3] = icao[2];
+        WriteBits(f, 32, 5, 11);              // ME bit 0-4: TC = 11 (airborne position)
+        WriteBits(f, 40, 12, ac12);           // ME bit 8-19: altitude
+        WriteBits(f, 53, 1, odd ? 1 : 0);     // ME bit 21: F (odd/even)
+        WriteBits(f, 54, 17, cprLat17);       // ME bit 22-38: CPR lat
+        WriteBits(f, 71, 17, cprLon17);       // ME bit 39-55: CPR lon
+        int p = ModeSCrc(f);
+        f[11] = (byte)(p >> 16); f[12] = (byte)(p >> 8); f[13] = (byte)p;
+        return f;
+    }
+
+    [Fact]
+    public void Decode_AirbornePositionWithNoAltitude_YieldsNullAltitudeButKeepsPosition()
+    {
+        var frame = CraftPosition("40621D", odd: false, 93000, 51372, ac12: 0); // altitude field all-zero
+        var outcome = Decoder.Decode(frame);
+
+        Assert.True(outcome.Success);
+        Assert.Equal("airborne_position", outcome.Frame!.FrameType);
+        Assert.Null(outcome.Frame.Cpr!.AltitudeFt);   // unavailable → null, not 0
+        Assert.Equal(93000, outcome.Frame.Cpr.CprLat17); // position still decodes
+    }
 }

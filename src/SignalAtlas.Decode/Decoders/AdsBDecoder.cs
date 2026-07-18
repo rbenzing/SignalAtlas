@@ -68,7 +68,7 @@ public sealed class AdsBDecoder : IProtocolDecoder
             bool odd = (msg[6] & 0x04) != 0;               // ME bit 21 (F format bit)
             int latCpr = ReadBits(msg, 54, 17);            // ME bits 22..38
             int lonCpr = ReadBits(msg, 71, 17);            // ME bits 39..55
-            int altFt = DecodeAltitude(ReadBits(msg, 40, 12)); // ME bits 8..19 (12-bit AC field)
+            int? altFt = DecodeAltitude(ReadBits(msg, 40, 12)); // ME bits 8..19 (12-bit AC field)
             cpr = new CprPosition(odd, latCpr, lonCpr, altFt);
             // ONE bounded evidence item only (frame type) — never the varying CPR/altitude values.
             evidence.Add(new EvidenceItem("adsb_frame", "airborne_position", 1.0));
@@ -92,12 +92,12 @@ public sealed class AdsBDecoder : IProtocolDecoder
         return value;
     }
 
-    /// <summary>Decodes the 12-bit AC altitude field to feet. Q-bit set → 25 ft increments
-    /// (ADS-B airborne standard); Q clear (legacy 100 ft Gillham) is not decoded in v1 → 0.</summary>
-    private static int DecodeAltitude(int ac12)
+    /// <summary>Decodes the 12-bit AC altitude field to feet, or null when unavailable
+    /// (field all-zero) or Q=0 (legacy 100 ft Gillham, out of v1 scope). Q=1 → 25 ft increments.</summary>
+    private static int? DecodeAltitude(int ac12)
     {
-        if (ac12 == 0) return 0;                 // altitude unavailable
-        if ((ac12 & 0x10) == 0) return 0;        // Q=0 (Gillham) — out of v1 scope
+        if (ac12 == 0) return null;              // altitude unavailable
+        if ((ac12 & 0x10) == 0) return null;     // Q=0 (Gillham) — out of v1 scope
         int n = ((ac12 & 0x0FE0) >> 1) | (ac12 & 0x000F);
         return n * 25 - 1000;
     }
