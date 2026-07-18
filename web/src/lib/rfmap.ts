@@ -251,7 +251,7 @@ export const AIRCRAFT_SOURCE = "aircraft";
 export const AIRCRAFT_POINT_LAYER = "aircraft-points";
 
 /** Distinct aircraft marker color (amber) — deliberately NOT a protocol color. */
-const AIRCRAFT_COLOR = "#f5a623";
+export const AIRCRAFT_COLOR = "#f5a623";
 
 export interface AircraftFeatureProps {
   id: string;

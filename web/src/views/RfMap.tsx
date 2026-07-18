@@ -40,6 +40,7 @@ import {
   RF_GRATICULE_LAYER,
   AIRCRAFT_SOURCE,
   AIRCRAFT_POINT_LAYER,
+  AIRCRAFT_COLOR,
 } from "../lib/rfmap";
 import { resolveBaseStyle } from "../lib/basemap";
 
@@ -216,7 +217,7 @@ export default function RfMap() {
                 width: 10,
                 height: 10,
                 borderRadius: "50%",
-                bgcolor: "#f5a623",
+                bgcolor: AIRCRAFT_COLOR,
               }}
             />
             <Typography variant="caption">Aircraft</Typography>
@@ -355,7 +356,7 @@ export default function RfMap() {
                       width: 12,
                       height: 12,
                       borderRadius: "50%",
-                      bgcolor: "#f5a623",
+                      bgcolor: AIRCRAFT_COLOR,
                     }}
                   />
                   <Typography variant="h6">
