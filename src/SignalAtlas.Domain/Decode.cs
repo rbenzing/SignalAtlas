@@ -9,7 +9,16 @@ public sealed record DecodedFrame(
     string FrameType,
     IReadOnlyDictionary<string, string> Identifiers,
     double DecodeQuality,
-    IReadOnlyList<EvidenceItem> Evidence);
+    IReadOnlyList<EvidenceItem> Evidence,
+    CprPosition? Cpr = null);
+
+/// <summary>
+/// Raw airborne-position payload from an ADS-B extended squitter (TC 9-18): the CPR format bit,
+/// the two 17-bit compact-position values, and barometric altitude (ft). Carried on the frame for
+/// the position resolver to consume — NEVER merged into a Device's identifiers/evidence (these
+/// values change every frame). Null for non-position frames.
+/// </summary>
+public sealed record CprPosition(bool Odd, int CprLat17, int CprLon17, int AltitudeFt);
 
 /// <summary>Outcome of a decode attempt. A frame is produced only when the CRC/FCS passes (AC-D6).</summary>
 public sealed record DecodeOutcome(bool Success, DecodedFrame? Frame, string? RejectReason)

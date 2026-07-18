@@ -48,6 +48,9 @@ public sealed class AdsBDecoder : IProtocolDecoder
             new("type_code", typeCode.ToString(), 1.0),
         };
 
+        string frameType = "extended_squitter";
+        CprPosition? cpr = null;
+
         // TC 1..4 = airborne identification: callsign lives in the ME field (bytes 5..10, 48 bits).
         if (typeCode is >= 1 and <= 4)
         {
@@ -58,9 +61,45 @@ public sealed class AdsBDecoder : IProtocolDecoder
                 evidence.Add(new EvidenceItem("callsign", callsign, 1.0));
             }
         }
+        // TC 9..18 = barometric airborne position: CPR lat/lon + altitude.
+        else if (typeCode is >= 9 and <= 18)
+        {
+            frameType = "airborne_position";
+            bool odd = (msg[6] & 0x04) != 0;               // ME bit 21 (F format bit)
+            int latCpr = ReadBits(msg, 54, 17);            // ME bits 22..38
+            int lonCpr = ReadBits(msg, 71, 17);            // ME bits 39..55
+            int altFt = DecodeAltitude(ReadBits(msg, 40, 12)); // ME bits 8..19 (12-bit AC field)
+            cpr = new CprPosition(odd, latCpr, lonCpr, altFt);
+            // ONE bounded evidence item only (frame type) — never the varying CPR/altitude values.
+            evidence.Add(new EvidenceItem("adsb_frame", "airborne_position", 1.0));
+        }
 
-        var frame = new DecodedFrame("ADS-B", "extended_squitter", identifiers, 1.0, evidence);
+        var frame = new DecodedFrame("ADS-B", frameType, identifiers, 1.0, evidence, cpr);
         return DecodeOutcome.Decoded(frame);
+    }
+
+    /// <summary>Reads <paramref name="count"/> big-endian bits starting at absolute bit
+    /// <paramref name="startBit"/> (bit 0 = MSB of byte 0) into an int.</summary>
+    private static int ReadBits(ReadOnlySpan<byte> msg, int startBit, int count)
+    {
+        int value = 0;
+        for (int i = 0; i < count; i++)
+        {
+            int bit = startBit + i;
+            int b = (msg[bit >> 3] >> (7 - (bit & 7))) & 1;
+            value = (value << 1) | b;
+        }
+        return value;
+    }
+
+    /// <summary>Decodes the 12-bit AC altitude field to feet. Q-bit set → 25 ft increments
+    /// (ADS-B airborne standard); Q clear (legacy 100 ft Gillham) is not decoded in v1 → 0.</summary>
+    private static int DecodeAltitude(int ac12)
+    {
+        if (ac12 == 0) return 0;                 // altitude unavailable
+        if ((ac12 & 0x10) == 0) return 0;        // Q=0 (Gillham) — out of v1 scope
+        int n = ((ac12 & 0x0FE0) >> 1) | (ac12 & 0x000F);
+        return n * 25 - 1000;
     }
 
     /// <summary>

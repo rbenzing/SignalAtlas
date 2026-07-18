@@ -125,4 +125,39 @@ public class DecodeAdsbTests
         Assert.True(Decoder.CanDecode("ads-b"));
         Assert.False(Decoder.CanDecode("FM-RDS"));
     }
+
+    [Fact]
+    public void Decode_AirbornePositionEven_ExtractsCprAndAltitude()
+    {
+        var outcome = Decoder.Decode(Hex("8D40621D58C382D690C8AC2863A7"));
+
+        Assert.True(outcome.Success);
+        Assert.Equal("airborne_position", outcome.Frame!.FrameType);
+        Assert.Equal("40621D", outcome.Frame.Identifiers["icao"]);
+        Assert.NotNull(outcome.Frame.Cpr);
+        Assert.False(outcome.Frame.Cpr!.Odd);
+        Assert.Equal(93000, outcome.Frame.Cpr.CprLat17);
+        Assert.Equal(51372, outcome.Frame.Cpr.CprLon17);
+        Assert.Equal(38000, outcome.Frame.Cpr.AltitudeFt);
+    }
+
+    [Fact]
+    public void Decode_AirbornePositionOdd_ExtractsCpr()
+    {
+        var outcome = Decoder.Decode(Hex("8D40621D58C386435CC412692AD6"));
+
+        Assert.True(outcome.Success);
+        Assert.True(outcome.Frame!.Cpr!.Odd);
+        Assert.Equal(74158, outcome.Frame.Cpr.CprLat17);
+        Assert.Equal(50194, outcome.Frame.Cpr.CprLon17);
+    }
+
+    [Fact]
+    public void Decode_IdentificationFrame_HasNoCprPayload()
+    {
+        var outcome = Decoder.Decode(Hex("8D4840D6202CC371C32CE0576098")); // TC 4 callsign
+        Assert.True(outcome.Success);
+        Assert.Null(outcome.Frame!.Cpr);
+        Assert.Equal("extended_squitter", outcome.Frame.FrameType);
+    }
 }
