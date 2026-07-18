@@ -140,4 +140,136 @@ public class IngestionPipelineDecodeTests
         Assert.Empty(devices.Upserts);
         Assert.Empty(notifier.Devices);
     }
+
+    // --- Bug #1 / #2 regression: real end-to-end grouping through the pipeline's PrimaryKeyOrder,
+    // decoded via the REAL ZigbeeMacDecoder / BleAdvDecoder + REAL DeviceResolver. The demodulation
+    // front-end for these protocols doesn't exist yet (only ADS-B's does, per CLAUDE.md's deferred
+    // seam), so a fake IDemodulator supplies already-valid, FCS/CRC-passing frame bytes for a single
+    // block — everything downstream (registry decode, grouping, resolve, upsert, notify) is real.
+
+    private sealed class FakeDemodulator(string protocol, IReadOnlyList<byte[]> frames) : IDemodulator
+    {
+        public string Protocol => protocol;
+        public IEnumerable<ReadOnlyMemory<byte>> Demodulate(IqBlock slice, FeatureVector features) =>
+            frames.Select(f => (ReadOnlyMemory<byte>)f);
+    }
+
+    // A benign non-zero block (light tone) so the RF stages upstream of decode (PSD/features/
+    // classify/correlate) don't hit degenerate all-zero DSP. Content is irrelevant to the fake
+    // demodulators, which ignore it and yield pre-built frame bytes directly.
+    private static IqBlock ToneBlock(long centerHz = 915_000_000, int sampleRateHz = 2_000_000, int samples = 4096)
+    {
+        var i = new float[samples];
+        var q = new float[samples];
+        for (int n = 0; n < samples; n++)
+        {
+            double ph = 2.0 * Math.PI * 50_000 * n / sampleRateHz;
+            i[n] = (float)(0.1 * Math.Cos(ph));
+            q[n] = (float)(0.1 * Math.Sin(ph));
+        }
+        return new IqBlock(centerHz, sampleRateHz, i, q);
+    }
+
+    // Builds a valid (FCS-passing) IEEE 802.15.4 MAC frame: FrameControl(short src, no dest,
+    // no PAN compression) + Seq + SrcPan(LE) + SrcAddr(LE, short) + FCS(CRC-16/KERMIT).
+    private static byte[] BuildZigbeeFrame(ushort panId, ushort srcAddr, byte seq = 1)
+    {
+        var body = new List<byte>();
+        ushort fc = 2 << 14; // srcMode=Short(2), destMode=None(0), panCompression=false.
+        body.Add((byte)(fc & 0xFF));
+        body.Add((byte)(fc >> 8));
+        body.Add(seq);
+        body.Add((byte)(panId & 0xFF));
+        body.Add((byte)(panId >> 8));
+        body.Add((byte)(srcAddr & 0xFF));
+        body.Add((byte)(srcAddr >> 8));
+        var fcs = ZigbeeMacDecoder.ComputeFcs(body.ToArray());
+        body.Add((byte)(fcs & 0xFF));
+        body.Add((byte)(fcs >> 8));
+        return body.ToArray();
+    }
+
+    // Builds a valid (CRC-24-passing) BLE ADV_IND PDU: AccessAddr(4, unchecked) + header(2,
+    // public TxAdd) + AdvA(6, wire = reverse of display) + CRC-24.
+    private static byte[] BuildBleFrame(string displayMac)
+    {
+        var octets = displayMac.Split(':').Select(o => Convert.ToByte(o, 16)).ToArray();
+        var wireMac = new byte[6];
+        for (var i = 0; i < 6; i++) wireMac[i] = octets[5 - i];
+
+        var pdu = new byte[8];
+        pdu[0] = 0x00; // public address (TxAdd clear).
+        pdu[1] = 6;    // payload length = AdvA only.
+        Array.Copy(wireMac, 0, pdu, 2, 6);
+        var crc = BleAdvDecoder.ComputeCrc24(pdu);
+
+        var frame = new byte[4 + 8 + 3];
+        frame[0] = frame[1] = frame[2] = frame[3] = 0xAA; // access address, not validated by the decoder.
+        Array.Copy(pdu, 0, frame, 4, 8);
+        frame[12] = (byte)(crc & 0xFF);
+        frame[13] = (byte)((crc >> 8) & 0xFF);
+        frame[14] = (byte)((crc >> 16) & 0xFF);
+        return frame;
+    }
+
+    private static IngestionPipeline BuildWithDemodulator(
+        CapturingDeviceRepo devices, CapturingNotifier notifier, IDemodulator demodulator) =>
+        new(
+            collectorId: "decode-test",
+            clock: new FixedClock(new DateTimeOffset(2026, 7, 18, 12, 0, 0, TimeSpan.Zero)),
+            position: new StaticPositionSource(null),
+            processor: new SignalProcessor(),
+            classifier: new RuleBasedClassifier(),
+            correlation: new WeightedCorrelationEngine(),
+            anomaly: new AnomalyEngine(),
+            observations: new NoopObs(),
+            signals: new NoopSignals(),
+            notifier: notifier,
+            demodulators: [demodulator],
+            registry: new DecoderRegistry([new ZigbeeMacDecoder(), new BleAdvDecoder()]),
+            resolver: new DeviceResolver(new OuiLookup()),
+            devices: devices);
+
+    // Bug #1 regression: two Zigbee nodes on the SAME PAN (distinct src_addr) must group into TWO
+    // devices, not collapse onto pan_id.
+    [Fact]
+    public void Run_TwoZigbeeNodesSamePan_ProducesTwoDevices()
+    {
+        var frames = new List<byte[]>
+        {
+            BuildZigbeeFrame(panId: 0x1234, srcAddr: 0xAAAA),
+            BuildZigbeeFrame(panId: 0x1234, srcAddr: 0xBBBB),
+        };
+        var devices = new CapturingDeviceRepo();
+        var notifier = new CapturingNotifier();
+
+        BuildWithDemodulator(devices, notifier, new FakeDemodulator("Zigbee", frames))
+            .Run(new OneBlockSource(ToneBlock()));
+
+        Assert.Equal(2, devices.Upserts.Count);
+        var srcAddrs = devices.Upserts.Select(d => d.Identifiers["src_addr"]).ToHashSet();
+        Assert.Equal(new HashSet<string> { "AAAA", "BBBB" }, srcAddrs);
+        Assert.All(devices.Upserts, d => Assert.Equal("1234", d.Identifiers["pan_id"]));
+    }
+
+    // Bug #2 regression: two BLE advertisers with distinct adva must group into TWO devices, not
+    // collapse onto the `proto:BLE` fallback bucket.
+    [Fact]
+    public void Run_TwoBleAdvertisers_ProducesTwoDevices()
+    {
+        var frames = new List<byte[]>
+        {
+            BuildBleFrame("3C:5A:B4:00:00:01"),
+            BuildBleFrame("3C:5A:B4:00:00:02"),
+        };
+        var devices = new CapturingDeviceRepo();
+        var notifier = new CapturingNotifier();
+
+        BuildWithDemodulator(devices, notifier, new FakeDemodulator("BLE", frames))
+            .Run(new OneBlockSource(ToneBlock()));
+
+        Assert.Equal(2, devices.Upserts.Count);
+        var advas = devices.Upserts.Select(d => d.Identifiers["adva"]).ToHashSet();
+        Assert.Equal(new HashSet<string> { "3c:5a:b4:00:00:01", "3c:5a:b4:00:00:02" }, advas);
+    }
 }

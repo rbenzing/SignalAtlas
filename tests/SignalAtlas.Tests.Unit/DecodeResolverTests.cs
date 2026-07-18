@@ -125,4 +125,66 @@ public class DecodeResolverTests
         Assert.Equal(a.Id, b.Id);
         Assert.Equal(DeterministicGuid.From("A1B2C3").ToString(), a.Id);
     }
+
+    // 9. Bug #1 regression: distinct Zigbee nodes on the SAME PAN (real ZigbeeMacDecoder keys
+    // src_addr/pan_id — not a hand-made ext_addr/short_addr) must resolve to DIFFERENT primary
+    // identifiers. Previously Classify's Zigbee primary keys didn't include src_addr at all, so
+    // resolution fell through to pan_id and every node on a PAN collapsed onto one device.
+    [Fact]
+    public void Resolve_ZigbeeDistinctSrcAddrSamePan_DifferentPrimaryIdentifiers()
+    {
+        var a = Frame("Zigbee", "Data",
+            new Dictionary<string, string> { ["src_addr"] = "AAAA", ["pan_id"] = "1234" });
+        var b = Frame("Zigbee", "Data",
+            new Dictionary<string, string> { ["src_addr"] = "BBBB", ["pan_id"] = "1234" });
+
+        var deviceA = Resolver.Resolve(new[] { a })!;
+        var deviceB = Resolver.Resolve(new[] { b })!;
+
+        Assert.Equal("AAAA", deviceA.PrimaryIdentifier);
+        Assert.Equal("BBBB", deviceB.PrimaryIdentifier);
+        Assert.NotEqual(deviceA.PrimaryIdentifier, deviceB.PrimaryIdentifier);
+        Assert.NotEqual(deviceA.Id, deviceB.Id);
+    }
+
+    // 10. Bug #2 regression: the real BleAdvDecoder key is `adva`, not `mac`. A BLE frame carrying
+    // only `adva` must resolve with a non-null primary identifier (previously Classify's BLE
+    // primary key was {"mac"}, which never matches a real decoder frame → null primary).
+    [Fact]
+    public void Resolve_BleAdva_NonNullPrimaryIdentifier()
+    {
+        var frame = Frame("BLE", "ADV_IND",
+            new Dictionary<string, string> { ["adva"] = "3c:5a:b4:00:00:01" });
+
+        var device = Resolver.Resolve(new[] { frame })!;
+
+        Assert.Equal("3c:5a:b4:00:00:01", device.PrimaryIdentifier);
+    }
+
+    // 11. Bug #22 regression: the vendor/LAA lookup only checked {bssid, mac} — a real BLE frame's
+    // `adva` was invisible to it, so a public (non-LAA) advertiser MAC was never vendor-mapped.
+    [Fact]
+    public void Resolve_BleAdvaPublicMac_VendorMapped()
+    {
+        var frame = Frame("BLE", "ADV_IND",
+            new Dictionary<string, string> { ["adva"] = "3C:5A:B4:00:00:01" });
+
+        var device = Resolver.Resolve(new[] { frame })!;
+
+        Assert.Equal("Google", device.Vendor);
+    }
+
+    // 12. Bug #22 regression, LAA side: an adva with the locally-administered bit set is flagged
+    // and never vendor-mapped, exactly like bssid/mac.
+    [Fact]
+    public void Resolve_BleAdvaLaaMac_NullVendorFlaggedInEvidence()
+    {
+        var frame = Frame("BLE", "ADV_IND",
+            new Dictionary<string, string> { ["adva"] = "3E:11:22:33:44:55" });
+
+        var device = Resolver.Resolve(new[] { frame })!;
+
+        Assert.Null(device.Vendor);
+        Assert.Contains(device.Evidence, e => e.Feature.Equals("laa_mac", StringComparison.OrdinalIgnoreCase));
+    }
 }

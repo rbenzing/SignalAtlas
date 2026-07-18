@@ -45,7 +45,7 @@ public sealed class DeviceResolver(IOuiLookup oui) : IDeviceResolver
         // Vendor only from a MAC-bearing identifier whose LAA bit is clear (SPEC §8.4).
         // A randomized/locally-administered MAC is flagged, not vendor-mapped (AC-D3).
         string? vendor = null;
-        var mac = FirstPresent(identifiers, new[] { "bssid", "mac" });
+        var mac = FirstPresent(identifiers, new[] { "bssid", "mac", "adva" });
         if (mac is not null)
         {
             if (_oui.IsLocallyAdministered(mac))
@@ -70,11 +70,11 @@ public sealed class DeviceResolver(IOuiLookup oui) : IDeviceResolver
         if (p.Contains("WI-FI") || p.Contains("WIFI") || p.Contains("WLAN") || p.Contains("802.11"))
             return ("Wi-Fi AP", new[] { "bssid", "mac" });
         if (p.Contains("BLE") || p.Contains("BLUETOOTH"))
-            return ("BLE device", new[] { "mac" });
+            return ("BLE device", new[] { "adva", "mac" });
         if (p.Contains("FM"))
             return ("FM broadcast", new[] { "pi", "ps", "callsign" });
         if (p.Contains("ZIGBEE") || p.Contains("802.15.4"))
-            return ("Zigbee node", new[] { "ext_addr", "short_addr", "pan_id" });
+            return ("Zigbee node", new[] { "src_addr", "ext_addr", "short_addr", "pan_id" });
         if (p.Contains("LORA"))
             return ("LoRa node", new[] { "devaddr", "deveui" });
         return ("Unknown device", Array.Empty<string>());

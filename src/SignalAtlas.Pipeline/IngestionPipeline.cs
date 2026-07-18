@@ -237,7 +237,10 @@ public sealed class IngestionPipeline
     // Ordered primary-identifier keys (mirrors DeviceResolver's precedence) used to group a block's
     // decoded frames per device before resolving. Falls back to protocol when none is present.
     private static readonly string[] PrimaryKeyOrder =
-        { "icao", "bssid", "mac", "devaddr", "deveui", "ext_addr", "short_addr", "pan_id", "callsign", "pi", "ps" };
+        {
+            "icao", "bssid", "adva", "mac", "devaddr", "deveui",
+            "src_addr", "ext_addr", "short_addr", "pan_id", "callsign", "pi", "ps"
+        };
 
     private static string PrimaryKey(DecodedFrame f)
     {
