@@ -56,4 +56,14 @@ public class CprPositionResolverTests
         // A different ICAO's even frame must not pair with AAAAAA's odd frame.
         Assert.Null(r.Accept("BBBBBB", odd: false, EvenLat, EvenLon, T0.AddSeconds(1)));
     }
+
+    [Fact]
+    public void Accept_ManySimultaneouslyFreshAircraft_CacheStaysBounded()
+    {
+        var r = new CprPositionResolver();
+        // 4200 distinct ICAOs, all fresh at the same instant → must not exceed the 4096 cap.
+        for (int k = 0; k < 4200; k++)
+            r.Accept($"{k:X6}", odd: false, EvenLat, EvenLon, T0);
+        Assert.True(r.TrackedAircraft <= 4096, $"cache grew to {r.TrackedAircraft}");
+    }
 }

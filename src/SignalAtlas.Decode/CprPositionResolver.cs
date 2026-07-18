@@ -18,6 +18,9 @@ public sealed class CprPositionResolver : ICprPositionResolver
     private readonly object _sync = new();
     private readonly Dictionary<string, (Frame? Even, Frame? Odd)> _cache = new(StringComparer.Ordinal);
 
+    /// <summary>Number of aircraft currently tracked in the pairing cache (for tests/metrics).</summary>
+    public int TrackedAircraft { get { lock (_sync) return _cache.Count; } }
+
     public GeoPosition? Accept(string icao, bool odd, int cprLat17, int cprLon17, DateTimeOffset time)
     {
         lock (_sync)
@@ -80,10 +83,26 @@ public sealed class CprPositionResolver : ICprPositionResolver
 
     private void Evict(DateTimeOffset now)
     {
+        // Drop entries whose both slots are stale relative to the pairing window.
         foreach (var key in _cache.Where(kv =>
                      (kv.Value.Even is not { } e || now - e.Time > PairWindow) &&
                      (kv.Value.Odd is not { } o || now - o.Time > PairWindow))
                  .Select(kv => kv.Key).ToList())
             _cache.Remove(key);
+
+        // Hard cap: if still over the limit (many simultaneously-fresh aircraft), evict the
+        // entries with the oldest most-recent-frame time until back at the cap.
+        while (_cache.Count > MaxAircraft)
+        {
+            var oldest = _cache.Aggregate((a, b) => MostRecent(a.Value) <= MostRecent(b.Value) ? a : b).Key;
+            _cache.Remove(oldest);
+        }
+    }
+
+    private static DateTimeOffset MostRecent((Frame? Even, Frame? Odd) pair)
+    {
+        var e = pair.Even?.Time ?? DateTimeOffset.MinValue;
+        var o = pair.Odd?.Time ?? DateTimeOffset.MinValue;
+        return e >= o ? e : o;
     }
 }
