@@ -1,11 +1,13 @@
+using Microsoft.EntityFrameworkCore;
 using SignalAtlas.Domain;
 
 namespace SignalAtlas.Persistence;
 
 // PORTABILITY NOTE: SQLite cannot ORDER BY a DateTimeOffset (stored as TEXT), while Postgres can.
-// To keep ONE query that runs on both providers (SPEC §4.3), Time-descending ordering is done
-// client-side after materializing. Row counts here are edge/demo-scale (retention §7.6), so
-// pulling then ordering is acceptable; a Postgres-side ORDER BY is a follow-up with real volume.
+// To keep ONE code path that runs on both providers (SPEC §4.3), each limited/ordered read below
+// splits on db.Database.IsNpgsql(): on Npgsql the ORDER BY + Take/Where run server-side (fixing the
+// full-table-scan at real volume, #8); on SQLite the same query still materializes then orders/filters
+// client-side, exactly as before, so the SQLite test fixtures keep passing.
 
 /// <summary>EF-backed observation store (SPEC §7.2). Writes append; reads return the most recent.</summary>
 public sealed class EfObservationRepository(SignalAtlasDbContext db) : IObservationRepository
@@ -17,14 +19,27 @@ public sealed class EfObservationRepository(SignalAtlasDbContext db) : IObservat
     }
 
     public IReadOnlyList<Observation> GetRecent(int limit) =>
-        db.Observations.AsEnumerable().OrderByDescending(o => o.Time).Take(limit).ToList();
+        db.Database.IsNpgsql()
+            ? db.Observations.OrderByDescending(o => o.Time).Take(limit).ToList()
+            : db.Observations.AsEnumerable().OrderByDescending(o => o.Time).Take(limit).ToList();
 }
 
 /// <summary>EF-backed signal store (SPEC §9.2 GET /signals). Reads recent; the pipeline appends.</summary>
 public sealed class EfSignalRepository(SignalAtlasDbContext db) : ISignalRepository, ISignalWriter
 {
     public IReadOnlyList<Signal> GetSignals(int limit = 100) =>
-        db.Signals.AsEnumerable().OrderByDescending(s => s.Time).Take(limit).ToList();
+        db.Database.IsNpgsql()
+            ? db.Signals.OrderByDescending(s => s.Time).Take(limit).ToList()
+            : db.Signals.AsEnumerable().OrderByDescending(s => s.Time).Take(limit).ToList();
+
+    /// <summary>Total signal row count — server-side (SPEC §9.2 pagination / dashboards, #8).</summary>
+    public int Count() => db.Signals.Count();
+
+    /// <summary>Signals at or after <paramref name="since"/>, most-recent-first (#8).</summary>
+    public IReadOnlyList<Signal> GetSince(DateTimeOffset since) =>
+        db.Database.IsNpgsql()
+            ? db.Signals.Where(s => s.Time >= since).OrderByDescending(s => s.Time).ToList()
+            : db.Signals.AsEnumerable().Where(s => s.Time >= since).OrderByDescending(s => s.Time).ToList();
 
     /// <summary>Appends a classified signal from the live ingestion pipeline (SPEC §4.10).</summary>
     public void Add(Signal s)
@@ -40,16 +55,37 @@ public sealed class EfDeviceRepository(SignalAtlasDbContext db) : IDeviceReposit
     public IReadOnlyList<Device> GetDevices(int limit = 100) =>
         db.Devices.OrderBy(d => d.Id).Take(limit).ToList();
 
+    /// <summary>Total device row count — server-side (#8).</summary>
+    public int Count() => db.Devices.Count();
+
     /// <summary>Idempotent insert-or-update keyed on the deterministic device id (SPEC §8.4). Merges
     /// into an existing row (see <see cref="DeviceMerge"/>) so identity accumulates across blocks
-    /// instead of a later frame silently erasing an earlier one's identifiers/evidence.</summary>
+    /// instead of a later frame silently erasing an earlier one's identifiers/evidence.
+    /// RACE HARDENING (#16): this is check-then-act (Find, then Add-or-Update), so a concurrent
+    /// upsert of the SAME deterministic id can insert between our Find and SaveChanges and turn our
+    /// Add into a duplicate-key failure. On that failure, reload the now-committed row and apply the
+    /// merge once instead of crashing; a genuinely repeated failure still surfaces.</summary>
     public void Upsert(Device device)
     {
         var existing = db.Devices.Find(device.Id);
         if (existing is null)
+        {
             db.Devices.Add(device);
-        else
-            db.Entry(existing).CurrentValues.SetValues(DeviceMerge.Merge(existing, device));
+            try
+            {
+                db.SaveChanges();
+                return;
+            }
+            catch (DbUpdateException)
+            {
+                db.Entry(device).State = EntityState.Detached;
+                existing = db.Devices.Find(device.Id);
+                if (existing is null)
+                    throw; // not a duplicate-key race after all — surface the original failure
+            }
+        }
+
+        db.Entry(existing).CurrentValues.SetValues(DeviceMerge.Merge(existing, device));
         db.SaveChanges();
     }
 }
@@ -62,14 +98,31 @@ public sealed class EfEmitterRepository(SignalAtlasDbContext db) : IEmitterRepos
     /// <summary>
     /// Idempotent insert-or-update keyed on the deterministic emitter id (SPEC §7.8): correlation
     /// re-emits the same id for the same transmitter, so re-runs converge instead of duplicating.
+    /// RACE HARDENING (#16): same check-then-act shape as <see cref="EfDeviceRepository.Upsert"/> —
+    /// a concurrent insert of the same id between our Find and SaveChanges is caught and retried once
+    /// against the now-committed row instead of crashing.
     /// </summary>
     public void Upsert(Emitter e)
     {
         var existing = db.Emitters.Find(e.Id);
         if (existing is null)
+        {
             db.Emitters.Add(e);
-        else
-            db.Entry(existing).CurrentValues.SetValues(e);
+            try
+            {
+                db.SaveChanges();
+                return;
+            }
+            catch (DbUpdateException)
+            {
+                db.Entry(e).State = EntityState.Detached;
+                existing = db.Emitters.Find(e.Id);
+                if (existing is null)
+                    throw; // not a duplicate-key race after all — surface the original failure
+            }
+        }
+
+        db.Entry(existing).CurrentValues.SetValues(e);
         db.SaveChanges();
     }
 }
@@ -78,7 +131,12 @@ public sealed class EfEmitterRepository(SignalAtlasDbContext db) : IEmitterRepos
 public sealed class EfAlertRepository(SignalAtlasDbContext db) : IAlertRepository, IAlertWriter
 {
     public IReadOnlyList<Alert> GetAlerts(int limit = 100) =>
-        db.Alerts.AsEnumerable().OrderByDescending(a => a.Time).Take(limit).ToList();
+        db.Database.IsNpgsql()
+            ? db.Alerts.OrderByDescending(a => a.Time).Take(limit).ToList()
+            : db.Alerts.AsEnumerable().OrderByDescending(a => a.Time).Take(limit).ToList();
+
+    /// <summary>Total alert row count — server-side (#8).</summary>
+    public int Count() => db.Alerts.Count();
 
     /// <summary>Appends an anomaly alert raised by the live ingestion pipeline (SPEC §8.8).</summary>
     public void Add(Alert a)
@@ -142,12 +200,17 @@ public sealed class EfEnrichmentRepository(SignalAtlasDbContext db) : IEnrichmen
 
     public Enrichment? Get(Guid id) => db.Enrichments.Find(id);
 
-    public IReadOnlyList<Enrichment> Query(Guid? runId, string? targetId) =>
-        db.Enrichments
-            .Where(e => (runId == null || e.RunId == runId) && (targetId == null || e.TargetId == targetId))
-            .AsEnumerable()
-            .OrderBy(e => e.Created)
-            .ToList();
+    public IReadOnlyList<Enrichment> Query(Guid? runId, string? targetId)
+    {
+        var filtered = db.Enrichments
+            .Where(e => (runId == null || e.RunId == runId) && (targetId == null || e.TargetId == targetId));
+
+        // Created is a DateTimeOffset too (see PORTABILITY NOTE); Npgsql can order it server-side,
+        // SQLite still materializes first and orders client-side.
+        return db.Database.IsNpgsql()
+            ? filtered.OrderBy(e => e.Created).ToList()
+            : filtered.AsEnumerable().OrderBy(e => e.Created).ToList();
+    }
 
     public void SetStatus(Guid id, string status)
     {

@@ -63,6 +63,28 @@ public sealed class InMemorySignalRepository : ISignalRepository, ISignalWriter,
         }
     }
 
+    /// <summary>Retained-signal count (#8), avoiding a full copy just to count.</summary>
+    public int Count()
+    {
+        lock (_sync)
+            return _signals.Count;
+    }
+
+    /// <summary>Signals at or after <paramref name="since"/>, most-recent-first (#8).</summary>
+    public IReadOnlyList<Signal> GetSince(DateTimeOffset since)
+    {
+        lock (_sync)
+        {
+            var result = new List<Signal>();
+            for (var node = _signals.Last; node is not null; node = node.Previous)
+            {
+                if (node.Value.Time >= since)
+                    result.Add(node.Value); // newest first
+            }
+            return result;
+        }
+    }
+
     /// <summary>Drop the demo seed (and anything else) so a connected device shows live signals only.</summary>
     public void ClearDemoSeed()
     {

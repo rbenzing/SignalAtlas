@@ -60,6 +60,13 @@ public sealed class InMemoryAlertRepository : IAlertRepository, IAlertWriter, ID
         }
     }
 
+    /// <summary>Retained-alert count (#8), avoiding a full copy just to count.</summary>
+    public int Count()
+    {
+        lock (_sync)
+            return _alerts.Count;
+    }
+
     /// <summary>Drop the demo seed so a connected device shows live alerts only.</summary>
     public void ClearDemoSeed()
     {

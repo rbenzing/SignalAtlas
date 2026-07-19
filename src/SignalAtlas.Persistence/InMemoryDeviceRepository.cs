@@ -33,6 +33,13 @@ public sealed class InMemoryDeviceRepository : IDeviceRepository, IDemoSeedStore
             return _devices.Take(limit).ToList();
     }
 
+    /// <summary>Retained-device count (#8), avoiding a full copy just to count.</summary>
+    public int Count()
+    {
+        lock (_sync)
+            return _devices.Count;
+    }
+
     private const int MaxDevices = 2000;
 
     /// <summary>Idempotent, newest-first, bounded upsert (SPEC §8.4). Merges into any existing row with
