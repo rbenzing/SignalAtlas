@@ -28,7 +28,7 @@ public class SdrReconnectTests
         public int OpenCount { get; private set; }
         public int CloseCount { get; private set; }
 
-        public void OpenReceive(long centerFreqHz, int sampleRateHz, double gainDb) => OpenCount++;
+        public void OpenReceive(long centerFreqHz, int sampleRateHz, RxGain gain, int basebandBwHz, bool biasTee) => OpenCount++;
         public ReadOnlyMemory<byte> ReadBlock() =>
             _reads.Count > 0 ? _reads.Dequeue()(this) : ReadOnlyMemory<byte>.Empty;
         public void Close() => CloseCount++;
@@ -36,7 +36,8 @@ public class SdrReconnectTests
 
     private static ReconnectingHackRfSampleSource NewSource(
         IHackRfDevice device, ISdrHealthSink sink, List<TimeSpan> delays) =>
-        new(device, CenterHz, SampleRateHz, gainDb: 32.0, samplesPerBlock: 2,
+        new(device, CenterHz, SampleRateHz, gain: RxGain.Default, basebandBwHz: 2_000_000, biasTee: false,
+            samplesPerBlock: 2,
             health: sink, clock: new FixedClock(new DateTimeOffset(2026, 7, 7, 12, 0, 0, TimeSpan.Zero)),
             delay: delays.Add);
 

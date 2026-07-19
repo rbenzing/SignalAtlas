@@ -31,7 +31,9 @@ public sealed class ReconnectingHackRfSampleSource : ISampleSource
     private readonly IHackRfDevice _device;
     private readonly long _centerFreqHz;
     private readonly int _sampleRateHz;
-    private readonly double _gainDb;
+    private readonly RxGain _gain;
+    private readonly int _basebandBwHz;
+    private readonly bool _biasTee;
     private readonly int _samplesPerBlock;
     private readonly ISdrHealthSink _health;
     private readonly IClock _clock;
@@ -41,7 +43,9 @@ public sealed class ReconnectingHackRfSampleSource : ISampleSource
         IHackRfDevice device,
         long centerFreqHz,
         int sampleRateHz,
-        double gainDb,
+        RxGain gain,
+        int basebandBwHz,
+        bool biasTee,
         int samplesPerBlock,
         ISdrHealthSink health,
         IClock clock,
@@ -51,7 +55,9 @@ public sealed class ReconnectingHackRfSampleSource : ISampleSource
         _device = device ?? throw new ArgumentNullException(nameof(device));
         _centerFreqHz = centerFreqHz;
         _sampleRateHz = sampleRateHz;
-        _gainDb = gainDb;
+        _gain = gain;
+        _basebandBwHz = basebandBwHz;
+        _biasTee = biasTee;
         _samplesPerBlock = samplesPerBlock;
         _health = health ?? throw new ArgumentNullException(nameof(health));
         _clock = clock ?? throw new ArgumentNullException(nameof(clock));
@@ -144,7 +150,7 @@ public sealed class ReconnectingHackRfSampleSource : ISampleSource
     {
         try
         {
-            _device.OpenReceive(_centerFreqHz, _sampleRateHz, _gainDb);
+            _device.OpenReceive(_centerFreqHz, _sampleRateHz, _gain, _basebandBwHz, _biasTee);
             _health.Report(new SdrHealthEvent(SdrHealthState.Connected, attempt, _clock.UtcNow));
             return true;
         }

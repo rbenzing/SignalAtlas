@@ -14,16 +14,22 @@ public sealed class HackRfSampleSource : ISampleSource
     private readonly IHackRfDevice _device;
     private readonly long _centerFreqHz;
     private readonly int _sampleRateHz;
-    private readonly double _gainDb;
+    private readonly RxGain _gain;
+    private readonly int _basebandBwHz;
+    private readonly bool _biasTee;
     private readonly int _samplesPerBlock;
 
-    public HackRfSampleSource(IHackRfDevice device, long centerFreqHz, int sampleRateHz, double gainDb, int samplesPerBlock)
+    public HackRfSampleSource(
+        IHackRfDevice device, long centerFreqHz, int sampleRateHz, RxGain gain, int basebandBwHz,
+        bool biasTee, int samplesPerBlock)
     {
         if (samplesPerBlock <= 0) throw new ArgumentOutOfRangeException(nameof(samplesPerBlock));
         _device = device ?? throw new ArgumentNullException(nameof(device));
         _centerFreqHz = centerFreqHz;
         _sampleRateHz = sampleRateHz;
-        _gainDb = gainDb;
+        _gain = gain;
+        _basebandBwHz = basebandBwHz;
+        _biasTee = biasTee;
         _samplesPerBlock = samplesPerBlock;
     }
 
@@ -32,7 +38,7 @@ public sealed class HackRfSampleSource : ISampleSource
         if (!_device.IsAvailable)
             yield break; // Graceful fallback — no hardware, no blocks (SPEC §8.1).
 
-        _device.OpenReceive(_centerFreqHz, _sampleRateHz, _gainDb);
+        _device.OpenReceive(_centerFreqHz, _sampleRateHz, _gain, _basebandBwHz, _biasTee);
         try
         {
             while (true)

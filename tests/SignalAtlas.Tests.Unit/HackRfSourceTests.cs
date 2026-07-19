@@ -17,8 +17,17 @@ public class HackRfSourceTests
         public bool IsAvailable { get; }
         public bool Opened { get; private set; }
         public bool Closed { get; private set; }
+        public RxGain? OpenedGain { get; private set; }
+        public int? OpenedBasebandBwHz { get; private set; }
+        public bool? OpenedBiasTee { get; private set; }
 
-        public void OpenReceive(long centerFreqHz, int sampleRateHz, double gainDb) => Opened = true;
+        public void OpenReceive(long centerFreqHz, int sampleRateHz, RxGain gain, int basebandBwHz, bool biasTee)
+        {
+            Opened = true;
+            OpenedGain = gain;
+            OpenedBasebandBwHz = basebandBwHz;
+            OpenedBiasTee = biasTee;
+        }
         public ReadOnlyMemory<byte> ReadBlock() =>
             _buffers.Count > 0 ? _buffers.Dequeue() : ReadOnlyMemory<byte>.Empty;
         public void Close() => Closed = true;
@@ -32,7 +41,10 @@ public class HackRfSourceTests
         var b1 = new byte[] { 0, 64, 128, 192 };
         var b2 = new byte[] { 127, 255, 32, 224 };
         var device = new FakeHackRfDevice(available: true, b1, b2);
-        var src = new HackRfSampleSource(device, centerFreqHz: 915_000_000, sampleRateHz: 2_000_000, gainDb: 32.0, samplesPerBlock: 2);
+        var gain = new RxGain(AmpEnable: true, LnaDb: 24, VgaDb: 30);
+        var src = new HackRfSampleSource(
+            device, centerFreqHz: 915_000_000, sampleRateHz: 2_000_000, gain: gain,
+            basebandBwHz: 2_500_000, biasTee: true, samplesPerBlock: 2);
 
         var blocks = src.Blocks().ToList();
 
@@ -51,6 +63,11 @@ public class HackRfSourceTests
 
         Assert.True(device.Opened);
         Assert.True(device.Closed);
+
+        // The configured RxGain/baseband bandwidth/bias-tee must reach the device untouched.
+        Assert.Equal(gain, device.OpenedGain);
+        Assert.Equal(2_500_000, device.OpenedBasebandBwHz);
+        Assert.True(device.OpenedBiasTee);
     }
 
     // M8 — no hardware: graceful fallback, Blocks() yields nothing (offline-first, SPEC §8.1).
@@ -58,7 +75,9 @@ public class HackRfSourceTests
     public void Blocks_YieldsNothing_WhenDeviceUnavailable()
     {
         var device = new FakeHackRfDevice(available: false, new byte[] { 1, 2, 3, 4 });
-        var src = new HackRfSampleSource(device, 915_000_000, 2_000_000, 32.0, samplesPerBlock: 2);
+        var src = new HackRfSampleSource(
+            device, 915_000_000, 2_000_000, RxGain.Default, basebandBwHz: 2_000_000, biasTee: false,
+            samplesPerBlock: 2);
 
         Assert.Empty(src.Blocks());
         Assert.False(device.Opened);

@@ -17,7 +17,10 @@ public sealed class SoapyHackRfDevice : IHackRfDevice
     // would probe SoapySDRDevice_enumerate for a "driver=hackrf" match over USB.
     public bool IsAvailable => false;
 
-    public void OpenReceive(long centerFreqHz, int sampleRateHz, double gainDb) =>
+    // Eventual real implementation maps: gain.AmpEnable -> SOAPY RF amp enable, gain.LnaDb -> IF/LNA
+    // gain element, gain.VgaDb -> baseband/VGA gain element, basebandBwHz -> baseband filter
+    // bandwidth, biasTee -> RX antenna-port +3.3V bias-tee enable (RX-side antenna power, not TX).
+    public void OpenReceive(long centerFreqHz, int sampleRateHz, RxGain gain, int basebandBwHz, bool biasTee) =>
         throw new NotSupportedException(
             "SoapyHackRfDevice is a stub: real HackRF receive needs SoapySDR P/Invoke bindings " +
             "and a HackRF connected over USB (SPEC §4.1, field-hardware step M8). " +
