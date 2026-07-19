@@ -45,6 +45,9 @@ vi.mock("./hackrf", () => ({
     setAmpEnable() {
       return Promise.resolve();
     }
+    setAntennaEnable() {
+      return Promise.resolve();
+    }
     get isConnected() {
       return hoisted.isConnectedMock();
     }

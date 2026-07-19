@@ -89,6 +89,7 @@ export default function HackRfConnect() {
             size="small"
             defaultValue={sdr.tuning.centerFreqHz / 1e6}
             onChange={(e) => void sdr.setTuning({ centerFreqHz: Number(e.target.value) * 1e6 })}
+            slotProps={{ htmlInput: { min: 1, max: 6000, step: "any" } }}
           />
           <TextField
             label="Sample rate (MS/s)"
@@ -96,6 +97,7 @@ export default function HackRfConnect() {
             size="small"
             defaultValue={sdr.tuning.sampleRateHz / 1e6}
             onChange={(e) => void sdr.setTuning({ sampleRateHz: Number(e.target.value) * 1e6 })}
+            slotProps={{ htmlInput: { min: 2, max: 20, step: "any" } }}
           />
           <TextField
             label="LNA gain (dB)"
@@ -120,6 +122,20 @@ export default function HackRfConnect() {
             }
             label="Amp"
           />
+          <Tooltip
+            title="Supplies +3.3 V to the antenna port — enable ONLY for an external powered LNA; can damage passive antennas / other equipment."
+            describeChild
+          >
+            <FormControlLabel
+              control={
+                <Switch
+                  checked={sdr.tuning.biasTee}
+                  onChange={(e) => void sdr.setTuning({ biasTee: e.target.checked })}
+                />
+              }
+              label="Bias-tee"
+            />
+          </Tooltip>
         </Stack>
       </Popover>
     </Box>

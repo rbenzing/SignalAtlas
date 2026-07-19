@@ -5,6 +5,7 @@ import Divider from "@mui/material/Divider";
 import Stack from "@mui/material/Stack";
 import Typography from "@mui/material/Typography";
 import IconButton from "@mui/material/IconButton";
+import Toolbar from "@mui/material/Toolbar";
 import CloseIcon from "@mui/icons-material/Close";
 import ChartCard from "../components/ChartCard";
 import DataTable, { type Column } from "../components/DataTable";
@@ -124,6 +125,7 @@ export default function Emitters() {
       )}
 
       <Drawer anchor="right" open={selected !== null} onClose={() => setSelected(null)}>
+        <Toolbar />
         <Box sx={{ width: 340, p: 2 }}>
           {selected && (
             <>

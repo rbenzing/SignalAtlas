@@ -1,7 +1,20 @@
 import { describe, it, expect } from "vitest";
 import { bandPresets, activeBand } from "./bandPresets";
 
-const KNOWN_KEYS = ["fm-broadcast", "adsb-1090", "ism-2400", "ism-sub-ghz"];
+const KNOWN_KEYS = [
+  "fm-broadcast",
+  "adsb-1090",
+  "ism-2400",
+  "ism-sub-ghz",
+  "airband",
+  "marine-vhf",
+  "noaa-weather",
+  "amateur-2m",
+  "amateur-70cm",
+  "gps-l1",
+  "dab-band3",
+  "wifi-5ghz",
+];
 
 describe("bandPresets catalog", () => {
   it("uses exactly the known coverage band keys", () => {
@@ -25,6 +38,17 @@ describe("bandPresets catalog", () => {
       expect(Number.isInteger(r)).toBe(true);
       expect(r).toBeGreaterThanOrEqual(2_000_000);
       expect(r).toBeLessThanOrEqual(20_000_000);
+    }
+  });
+
+  it("keeps every band and channel frequency within the HackRF 1 MHz-6 GHz tuning range", () => {
+    for (const b of bandPresets) {
+      expect(b.centerFreqHz).toBeGreaterThanOrEqual(1_000_000);
+      expect(b.centerFreqHz).toBeLessThanOrEqual(6_000_000_000);
+      for (const c of b.channels) {
+        expect(c.centerFreqHz, `${b.key}/${c.key}`).toBeGreaterThanOrEqual(1_000_000);
+        expect(c.centerFreqHz, `${b.key}/${c.key}`).toBeLessThanOrEqual(6_000_000_000);
+      }
     }
   });
 

@@ -12,6 +12,7 @@ import Box from "@mui/material/Box";
 import Drawer from "@mui/material/Drawer";
 import Typography from "@mui/material/Typography";
 import IconButton from "@mui/material/IconButton";
+import Toolbar from "@mui/material/Toolbar";
 import Divider from "@mui/material/Divider";
 import Stack from "@mui/material/Stack";
 import FormControlLabel from "@mui/material/FormControlLabel";
@@ -327,6 +328,7 @@ export default function RfMap() {
       </Box>
 
       <Drawer anchor="right" open={selected !== null} onClose={() => setSelected(null)}>
+        <Toolbar />
         <Box sx={{ width: 340, p: 2 }}>
           {selected && (
             <>
@@ -407,6 +409,7 @@ export default function RfMap() {
         open={selectedAircraft !== null}
         onClose={() => setSelectedAircraft(null)}
       >
+        <Toolbar />
         <Box sx={{ width: 340, p: 2 }}>
           {selectedAircraft && (
             <>

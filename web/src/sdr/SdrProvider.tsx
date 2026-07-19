@@ -10,6 +10,8 @@ export interface SdrTuning {
   lnaGain: number;
   vgaGain: number;
   ampEnable: boolean;
+  /** Antenna-port bias-tee (+3.3 V, RX-side only — powers an external LNA). Default off. */
+  biasTee: boolean;
 }
 
 export const DEFAULT_TUNING: SdrTuning = {
@@ -18,6 +20,7 @@ export const DEFAULT_TUNING: SdrTuning = {
   lnaGain: 16,
   vgaGain: 20,
   ampEnable: false,
+  biasTee: false,
 };
 
 export interface SdrState {
@@ -112,6 +115,7 @@ export function SdrProvider({ children }: { children: React.ReactNode }) {
     await dev.setLnaGain(t.lnaGain);
     await dev.setVgaGain(t.vgaGain);
     await dev.setAmpEnable(t.ampEnable);
+    await dev.setAntennaEnable(t.biasTee);
   };
 
   // Teardown closes/releases the device and socket and nulls the refs, but does NOT

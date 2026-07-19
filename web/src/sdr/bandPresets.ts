@@ -73,6 +73,102 @@ export const bandPresets: BandPreset[] = [
       { key: "ism-915", label: "915 MHz", centerFreqHz: 915_000_000, sampleRateHz: 2 * MS },
     ],
   },
+  {
+    key: "airband",
+    label: "Airband 118-137 MHz (AM)",
+    lowHz: 118 * MS,
+    highHz: 137 * MS,
+    centerFreqHz: 127_500_000,
+    sampleRateHz: 19 * MS,
+    channels: [
+      { key: "airband-1215", label: "121.5 MHz - Emergency", centerFreqHz: 121_500_000, sampleRateHz: 2 * MS },
+      { key: "airband-1180", label: "118.0 MHz", centerFreqHz: 118_000_000, sampleRateHz: 2 * MS },
+    ],
+  },
+  {
+    key: "marine-vhf",
+    label: "Marine VHF 156-162 MHz",
+    lowHz: 156 * MS,
+    highHz: 162 * MS,
+    centerFreqHz: 159_000_000,
+    sampleRateHz: 6 * MS,
+    channels: [
+      { key: "marine-ch16", label: "Ch 16 - 156.8 MHz (Distress)", centerFreqHz: 156_800_000, sampleRateHz: 2 * MS },
+    ],
+  },
+  {
+    key: "noaa-weather",
+    label: "NOAA Weather Radio 162.4-162.55 MHz",
+    lowHz: 162_400_000,
+    highHz: 162_550_000,
+    centerFreqHz: 162_475_000,
+    sampleRateHz: 2 * MS,
+    channels: [
+      { key: "noaa-wx1", label: "162.400 MHz", centerFreqHz: 162_400_000, sampleRateHz: 2 * MS },
+      { key: "noaa-wx3", label: "162.475 MHz", centerFreqHz: 162_475_000, sampleRateHz: 2 * MS },
+      { key: "noaa-wx7", label: "162.550 MHz", centerFreqHz: 162_550_000, sampleRateHz: 2 * MS },
+    ],
+  },
+  {
+    key: "amateur-2m",
+    label: "2 m Amateur 144-148 MHz",
+    lowHz: 144 * MS,
+    highHz: 148 * MS,
+    centerFreqHz: 146 * MS,
+    sampleRateHz: 4 * MS,
+    channels: [
+      { key: "2m-ssb", label: "144.200 MHz - SSB calling", centerFreqHz: 144_200_000, sampleRateHz: 2 * MS },
+      { key: "2m-fm", label: "146.520 MHz - FM simplex", centerFreqHz: 146_520_000, sampleRateHz: 2 * MS },
+    ],
+  },
+  {
+    key: "amateur-70cm",
+    label: "70 cm Amateur 430-440 MHz",
+    lowHz: 430 * MS,
+    highHz: 440 * MS,
+    centerFreqHz: 435 * MS,
+    sampleRateHz: 10 * MS,
+    channels: [
+      { key: "70cm-ssb", label: "433.500 MHz - SSB calling", centerFreqHz: 433_500_000, sampleRateHz: 2 * MS },
+      { key: "70cm-fm", label: "435.000 MHz", centerFreqHz: 435_000_000, sampleRateHz: 2 * MS },
+    ],
+  },
+  {
+    key: "gps-l1",
+    label: "GPS L1 1575.42 MHz",
+    lowHz: 1_574_420_000,
+    highHz: 1_576_420_000,
+    centerFreqHz: 1_575_420_000,
+    sampleRateHz: 2 * MS,
+    channels: [
+      { key: "gps-l1", label: "1575.42 MHz - L1 C/A", centerFreqHz: 1_575_420_000, sampleRateHz: 2 * MS },
+    ],
+  },
+  {
+    key: "dab-band3",
+    label: "DAB / Band III 174-240 MHz",
+    lowHz: 174 * MS,
+    highHz: 240 * MS,
+    centerFreqHz: 207 * MS,
+    sampleRateHz: 8 * MS,
+    channels: [
+      { key: "dab-11a", label: "Block 11A - 215.072 MHz", centerFreqHz: 215_072_000, sampleRateHz: 2 * MS },
+      { key: "dab-12a", label: "Block 12A - 223.936 MHz", centerFreqHz: 223_936_000, sampleRateHz: 2 * MS },
+    ],
+  },
+  {
+    key: "wifi-5ghz",
+    label: "Wi-Fi 5 GHz 5150-5850 MHz",
+    lowHz: 5_150 * MS,
+    highHz: 5_850 * MS,
+    centerFreqHz: 5_500 * MS,
+    sampleRateHz: 20 * MS,
+    channels: [
+      { key: "wifi5-ch36", label: "Ch 36 - 5180 MHz", centerFreqHz: 5_180 * MS, sampleRateHz: 20 * MS },
+      { key: "wifi5-ch100", label: "Ch 100 - 5500 MHz", centerFreqHz: 5_500 * MS, sampleRateHz: 20 * MS },
+      { key: "wifi5-ch165", label: "Ch 165 - 5825 MHz", centerFreqHz: 5_825 * MS, sampleRateHz: 20 * MS },
+    ],
+  },
 ];
 
 /** The band whose inclusive [lowHz, highHz] window contains centerHz, else null (=> "Custom"). */

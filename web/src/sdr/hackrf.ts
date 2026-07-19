@@ -43,6 +43,7 @@ enum HackRfRequest {
   BOARD_PARTID_SERIALNO_READ = 18,
   SET_LNA_GAIN = 19,
   SET_VGA_GAIN = 20,
+  ANTENNA_ENABLE = 23,
 }
 
 // TransceiverMode has no TX member: only OFF and RX exist in this build.
@@ -173,6 +174,9 @@ export class HackRfDevice {
   }
 
   async setFrequency(freqHz: number): Promise<void> {
+    if (freqHz < 1_000_000 || freqHz > 6_000_000_000) {
+      throw new RangeError(`HackRF center frequency must be 1 MHz–6 GHz (got ${freqHz}).`);
+    }
     const data = new ArrayBuffer(8);
     const view = new DataView(data);
     view.setUint32(0, Math.floor(freqHz / 1e6), true);
@@ -181,6 +185,9 @@ export class HackRfDevice {
   }
 
   async setSampleRate(rateHz: number): Promise<void> {
+    if (rateHz < 2_000_000 || rateHz > 20_000_000) {
+      throw new RangeError(`HackRF sample rate must be 2-20 MS/s (got ${rateHz}).`);
+    }
     const data = new ArrayBuffer(8);
     const view = new DataView(data);
     view.setUint32(0, Math.floor(rateHz), true);
@@ -213,6 +220,14 @@ export class HackRfDevice {
 
   async setAmpEnable(enabled: boolean): Promise<void> {
     await this.controlOut(HackRfRequest.AMP_ENABLE, enabled ? 1 : 0);
+  }
+
+  /**
+   * Bias-tee: supplies +3.3 V to the antenna port to power an external RX LNA.
+   * Receive-side antenna power only — not a transmit path (invariant #1).
+   */
+  async setAntennaEnable(enabled: boolean): Promise<void> {
+    await this.controlOut(HackRfRequest.ANTENNA_ENABLE, enabled ? 1 : 0);
   }
 
   private async setTransceiverMode(mode: TransceiverMode): Promise<void> {
