@@ -246,9 +246,9 @@ api.MapGet("/summary", (ISignalRepository signals, IDeviceRepository devices, IA
 {
     var summary = new
     {
-        signalCount = signals.GetSignals(int.MaxValue).Count,
-        deviceCount = devices.GetDevices(int.MaxValue).Count,
-        alertCount = alerts.GetAlerts(int.MaxValue).Count,
+        signalCount = signals.Count(),
+        deviceCount = devices.Count(),
+        alertCount = alerts.Count(),
     };
     return Results.Ok(new ApiEnvelope<object>(
         ApiEnvelope<object>.CurrentSchemaVersion,

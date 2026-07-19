@@ -57,10 +57,6 @@ public static class Pagination
         return true;
     }
 
-    /// <summary>Opaque forward cursor: base64 of the next offset (SPEC §9 cursor pagination).</summary>
-    public static string EncodeCursor(int offset) =>
-        Convert.ToBase64String(Encoding.UTF8.GetBytes(offset.ToString()));
-
     private static bool TryDecodeCursor(string cursor, out int offset)
     {
         offset = 0;
