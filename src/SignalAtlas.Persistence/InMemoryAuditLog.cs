@@ -8,14 +8,17 @@ namespace SignalAtlas.Persistence;
 /// request handlers hit <see cref="Record"/> concurrently; guarded with a lock like the other
 /// in-memory repos. Bounded (#10): unguarded growth would let a long-running offline session leak
 /// memory one audited request at a time, so entries beyond <see cref="MaxEntries"/> are dropped
-/// oldest-first while <see cref="_next"/> stays monotonic (ids are never reused).
+/// oldest-first while <see cref="_next"/> stays monotonic (ids are never reused). Backed by a
+/// <see cref="LinkedList{T}"/> (oldest → newest), mirroring <see cref="InMemorySignalRepository"/> /
+/// <see cref="InMemoryAlertRepository"/>, so eviction is O(1) <c>RemoveFirst()</c> per call instead of
+/// an O(n) list shift once the cap is reached.
 /// </summary>
 public sealed class InMemoryAuditLog : IAuditLog
 {
     /// <summary>Retained-entry cap; oldest entries are evicted once exceeded.</summary>
     public const int MaxEntries = 100_000;
 
-    private readonly List<AuditEntry> _entries = [];
+    private readonly LinkedList<AuditEntry> _entries = new(); // oldest → newest
     private readonly object _gate = new();
     private long _next = 1;
 
@@ -23,9 +26,9 @@ public sealed class InMemoryAuditLog : IAuditLog
     {
         lock (_gate)
         {
-            _entries.Add(new AuditEntry(_next++, DateTimeOffset.UtcNow, actor, action, query));
-            if (_entries.Count > MaxEntries)
-                _entries.RemoveRange(0, _entries.Count - MaxEntries); // drop oldest
+            _entries.AddLast(new AuditEntry(_next++, DateTimeOffset.UtcNow, actor, action, query));
+            while (_entries.Count > MaxEntries)
+                _entries.RemoveFirst(); // drop oldest — O(1) per removal
         }
     }
 
@@ -33,6 +36,11 @@ public sealed class InMemoryAuditLog : IAuditLog
     public IReadOnlyList<AuditEntry> Recent(int limit)
     {
         lock (_gate)
-            return _entries.AsEnumerable().Reverse().Take(limit).ToList();
+        {
+            var result = new List<AuditEntry>(Math.Min(limit, _entries.Count));
+            for (var node = _entries.Last; node is not null && result.Count < limit; node = node.Previous)
+                result.Add(node.Value); // newest first
+            return result;
+        }
     }
 }

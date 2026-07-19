@@ -42,21 +42,23 @@ public sealed class PerformanceHardeningTests
     }
 
     [Fact]
-    public void AuditLog_Recent_IsBounded_ByMaxEntries()
+    public void AuditLog_Recent_IsBounded_ByMaxEntries_AndEvictsOldest()
     {
         var log = new InMemoryAuditLog();
-        // Cheaper than actually exceeding the 100_000 cap: assert Recent() never returns more than
-        // asked for and never throws when asked for far more than exist — the bound is functional,
-        // not a literal loop to MaxEntries+1 (too slow for a unit test).
-        for (var i = 0; i < 500; i++)
+        // Cross the cap for real (100_000 inserts is fast — well under a second) so eviction is
+        // actually exercised, not just asserted-never-exceeded on a run that never reaches it.
+        const int total = InMemoryAuditLog.MaxEntries + 10;
+        for (var i = 1; i <= total; i++)
             log.Record("actor", "action", $"q{i}");
 
         var all = log.Recent(int.MaxValue);
 
-        Assert.Equal(500, all.Count);
-        Assert.True(all.Count <= InMemoryAuditLog.MaxEntries);
+        Assert.Equal(InMemoryAuditLog.MaxEntries, all.Count); // capped, not total
+        // Oldest 10 (ids 1..10) were evicted; the smallest surviving id is 11.
+        Assert.Equal(11, all[^1].Id);
         // Most-recent-first: the last recorded entry comes back first.
-        Assert.Equal("q499", all[0].Query);
+        Assert.Equal(total, all[0].Id);
+        Assert.Equal($"q{total}", all[0].Query);
     }
 
     // ── Count()/GetSince() on the in-memory repos (#8) ──────────────────────────────────────────────
