@@ -66,4 +66,30 @@ public class CprPositionResolverTests
             r.Accept($"{k:X6}", odd: false, EvenLat, EvenLon, T0);
         Assert.True(r.TrackedAircraft <= 4096, $"cache grew to {r.TrackedAircraft}");
     }
+
+    [Fact]
+    public void Accept_OverCapWithStaggeredFreshTimes_EvictsOldestByMostRecentFrameTime()
+    {
+        var r = new CprPositionResolver();
+        // 4146 distinct ICAOs (4096 + 50 over the cap), each with a strictly increasing, fresh
+        // timestamp (1 ms apart, well within the 10 s pairing window of "now" == the last insert),
+        // so the stale-purge block drops nothing and the hard-cap batch-eviction path is exercised.
+        const int total = 4096 + 50;
+        for (int k = 0; k < total; k++)
+            r.Accept($"{k:X6}", odd: false, EvenLat, EvenLon, T0.AddMilliseconds(k));
+
+        Assert.Equal(4096, r.TrackedAircraft);
+
+        // The single oldest-timestamped ICAO (index 0) must have been evicted: completing its
+        // pair with an odd frame finds no surviving even frame, so the pair stays incomplete and
+        // Accept returns null.
+        var evictedTime = T0.AddMilliseconds(total);
+        Assert.Null(r.Accept("000000", odd: true, OddLat, OddLon, evictedTime));
+
+        // The single most-recently-inserted ICAO (index total-1) must have survived: completing
+        // its pair with an odd frame finds the still-cached even frame and decodes a position.
+        var survivorIcao = $"{total - 1:X6}";
+        var pos = r.Accept(survivorIcao, odd: true, OddLat, OddLon, T0.AddMilliseconds(total - 1 + 1));
+        Assert.NotNull(pos);
+    }
 }

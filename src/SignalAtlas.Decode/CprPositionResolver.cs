@@ -91,11 +91,17 @@ public sealed class CprPositionResolver : ICprPositionResolver
             _cache.Remove(key);
 
         // Hard cap: if still over the limit (many simultaneously-fresh aircraft), evict the
-        // entries with the oldest most-recent-frame time until back at the cap.
-        while (_cache.Count > MaxAircraft)
+        // entries with the oldest most-recent-frame time in a single O(n log n) batch instead of
+        // an O(n) scan per removal.
+        int over = _cache.Count - MaxAircraft;
+        if (over > 0)
         {
-            var oldest = _cache.Aggregate((a, b) => MostRecent(a.Value) <= MostRecent(b.Value) ? a : b).Key;
-            _cache.Remove(oldest);
+            var victims = _cache
+                .OrderBy(kv => MostRecent(kv.Value))
+                .Take(over)
+                .Select(kv => kv.Key)
+                .ToList();
+            foreach (var key in victims) _cache.Remove(key);
         }
     }
 
