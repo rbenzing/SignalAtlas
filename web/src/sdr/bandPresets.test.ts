@@ -69,4 +69,14 @@ describe("activeBand", () => {
   it("returns null for an off-catalog (custom) center", () => {
     expect(activeBand(1_500_000_000)).toBeNull();
   });
+
+  it("prefers the narrowest matching band when windows overlap (70cm inside sub-GHz ISM)", () => {
+    // amateur-70cm (430-440 MHz) sits entirely inside ism-sub-ghz (433.05-928 MHz); the
+    // narrower, more specific 70cm band must win, not the first catalog match.
+    expect(activeBand(435_000_000)?.key).toBe("amateur-70cm");
+  });
+
+  it("still resolves a non-overlapping band correctly (regression guard)", () => {
+    expect(activeBand(98_000_000)?.key).toBe("fm-broadcast");
+  });
 });

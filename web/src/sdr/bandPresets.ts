@@ -141,7 +141,7 @@ export const bandPresets: BandPreset[] = [
     centerFreqHz: 1_575_420_000,
     sampleRateHz: 2 * MS,
     channels: [
-      { key: "gps-l1", label: "1575.42 MHz - L1 C/A", centerFreqHz: 1_575_420_000, sampleRateHz: 2 * MS },
+      { key: "gps-l1-ca", label: "1575.42 MHz - L1 C/A", centerFreqHz: 1_575_420_000, sampleRateHz: 2 * MS },
     ],
   },
   {
@@ -171,7 +171,17 @@ export const bandPresets: BandPreset[] = [
   },
 ];
 
-/** The band whose inclusive [lowHz, highHz] window contains centerHz, else null (=> "Custom"). */
+/**
+ * The band whose inclusive [lowHz, highHz] window contains centerHz, else null (=> "Custom").
+ * When multiple bands' windows contain centerHz (e.g. the 70 cm amateur band sits inside the
+ * wider sub-GHz ISM window), the NARROWEST (most specific) matching window wins, not the first
+ * one in catalog order — otherwise a broad band can silently shadow a narrower one added later.
+ */
 export function activeBand(centerHz: number): BandPreset | null {
-  return bandPresets.find((b) => centerHz >= b.lowHz && centerHz <= b.highHz) ?? null;
+  let best: BandPreset | null = null;
+  for (const b of bandPresets) {
+    if (centerHz < b.lowHz || centerHz > b.highHz) continue;
+    if (best === null || b.highHz - b.lowHz < best.highHz - best.lowHz) best = b;
+  }
+  return best;
 }
