@@ -28,6 +28,11 @@ public sealed class PhyFingerprinter : IFingerprinter
     public const int IdxTransientOvershoot = 6; // turn-on envelope overshoot (relative)
     public const int IdxPhaseNoise = 7;      // std of instantaneous frequency — phase-noise proxy (ref-gated)
 
+    private readonly IClock _clock;
+
+    /// <summary>Requires an injected clock — deterministic core (§6.1 P5) never reads the wall clock directly.</summary>
+    public PhyFingerprinter(IClock clock) => _clock = clock ?? throw new ArgumentNullException(nameof(clock));
+
     public DeviceFingerprint Extract(IqBlock slice, string refQuality, string emitterId)
     {
         ArgumentNullException.ThrowIfNull(slice);
@@ -41,7 +46,7 @@ public sealed class PhyFingerprinter : IFingerprinter
         if (n < 4)
         {
             // Too short to characterize — return a zero embedding (deterministic, still valid).
-            return new DeviceFingerprint(emitterId, embedding, StabilityFor(refQuality), refQuality, DateTimeOffset.UtcNow);
+            return new DeviceFingerprint(emitterId, embedding, StabilityFor(refQuality), refQuality, _clock.UtcNow);
         }
 
         // --- DC offset (mean of each arm) ---
@@ -124,7 +129,7 @@ public sealed class PhyFingerprinter : IFingerprinter
         embedding[IdxTransientOvershoot] = overshoot;
         embedding[IdxPhaseNoise] = phaseNoise;
 
-        return new DeviceFingerprint(emitterId, embedding, StabilityFor(refQuality), refQuality, DateTimeOffset.UtcNow);
+        return new DeviceFingerprint(emitterId, embedding, StabilityFor(refQuality), refQuality, _clock.UtcNow);
     }
 
     /// <summary>

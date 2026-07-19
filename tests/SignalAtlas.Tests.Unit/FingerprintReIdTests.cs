@@ -44,7 +44,7 @@ public class FingerprintReIdTests
             _ => 200_000,
         };
 
-        var fp = new PhyFingerprinter();
+        var fp = new PhyFingerprinter(new FixedClock(DateTimeOffset.UnixEpoch));
         var enroll = new DeviceFingerprint[Devices];
         var probe = new DeviceFingerprint[Devices];
         for (int d = 0; d < Devices; d++)

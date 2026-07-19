@@ -20,20 +20,34 @@ public class FingerprintTests
         string emitterId = "emitter-x", long centerFreqHz = 100_000_000)
     {
         var block = FingerprintSynth.Synthesize(hw, refQuality, seed, centerFreqHz);
-        return new PhyFingerprinter().Extract(block, refQuality, emitterId);
+        return new PhyFingerprinter(new FixedClock(DateTimeOffset.UnixEpoch)).Extract(block, refQuality, emitterId);
     }
 
     [Fact]
     public void Extract_SameInputs_ProducesIdenticalEmbedding()
     {
         var block = FingerprintSynth.Synthesize(RadioA, RefQuality.Gpsdo, seed: 7);
-        var fp = new PhyFingerprinter();
+        var fp = new PhyFingerprinter(new FixedClock(DateTimeOffset.UnixEpoch));
 
         var a = fp.Extract(block, RefQuality.Gpsdo, "e1");
         var b = fp.Extract(block, RefQuality.Gpsdo, "e1");
 
         Assert.Equal(PhyFingerprinter.EmbeddingLength, a.FeatureVector.Length);
         Assert.Equal(a.FeatureVector, b.FeatureVector); // deterministic (§6.1 P5)
+    }
+
+    [Fact]
+    public void Extract_SameIqAndClock_ProducesIdenticalUpdatedAt()
+    {
+        // P5: identical inputs + identical injected clock → identical output, including UpdatedAt.
+        var block = FingerprintSynth.Synthesize(RadioA, RefQuality.Gpsdo, seed: 7);
+        var clock = new FixedClock(DateTimeOffset.UnixEpoch);
+
+        var a = new PhyFingerprinter(clock).Extract(block, RefQuality.Gpsdo, "e1");
+        var b = new PhyFingerprinter(clock).Extract(block, RefQuality.Gpsdo, "e1");
+
+        Assert.Equal(a.UpdatedAt, b.UpdatedAt);
+        Assert.Equal(a.FeatureVector, b.FeatureVector);
     }
 
     [Fact]

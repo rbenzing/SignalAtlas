@@ -16,7 +16,7 @@ public class FingerprintSpoofTests
         new(-0.07, -0.06, -0.02, 0.02, -1500, 200, 0.005);
 
     private static DeviceFingerprint Fp(HardwareSignature hw, ulong seed, string emitterId) =>
-        new PhyFingerprinter().Extract(
+        new PhyFingerprinter(new FixedClock(DateTimeOffset.UnixEpoch)).Extract(
             FingerprintSynth.Synthesize(hw, RefQuality.Gpsdo, seed), RefQuality.Gpsdo, emitterId);
 
     [Fact]
@@ -43,5 +43,29 @@ public class FingerprintSpoofTests
         var again = Fp(GenuineRadio, seed: 2, emitterId: "emitter-a"); // same radio, same ID → fine
 
         Assert.Null(new SpoofDetector().Check(bssid, known, again));
+    }
+
+    [Fact]
+    public void ClonedIdentifier_SameInputsUnderFixedClock_ProducesIdenticalAlertId()
+    {
+        // P5: identical inputs run twice, independently, under the same injected clock → identical
+        // Alert.Id. Previously SpoofDetector derived the Id from DateTimeOffset.UtcNow (via
+        // DeviceFingerprint.UpdatedAt) so two runs of the same inputs produced DIFFERENT alert ids.
+        const string bssid = "AA:BB:CC:DD:EE:FF";
+
+        Alert? Run()
+        {
+            var known = Fp(GenuineRadio, seed: 1, emitterId: "emitter-genuine");
+            var cloned = Fp(ClonerRadio, seed: 2, emitterId: "emitter-cloned");
+            return new SpoofDetector().Check(bssid, known, cloned);
+        }
+
+        var alert1 = Run();
+        var alert2 = Run();
+
+        Assert.NotNull(alert1);
+        Assert.NotNull(alert2);
+        Assert.Equal(alert1!.Id, alert2!.Id);
+        Assert.Equal(alert1.Time, alert2.Time);
     }
 }
