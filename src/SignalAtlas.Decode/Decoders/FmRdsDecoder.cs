@@ -84,7 +84,7 @@ public sealed class FmRdsDecoder : IProtocolDecoder
 
         if (Array.Exists(psSeen, s => s))
         {
-            string ps = new string(psChars).TrimEnd();
+            string ps = new string(psChars).Replace('\0', ' ').TrimEnd();
             if (ps.Length > 0)
             {
                 identifiers["ps"] = ps;

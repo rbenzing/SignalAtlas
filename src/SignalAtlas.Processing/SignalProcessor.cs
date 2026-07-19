@@ -35,10 +35,14 @@ public sealed class SignalProcessor : ISignalProcessor
         var acc = new double[FftSize];                // averaged linear power per FFT bin
         int segments = 0;
 
+        // Method-local scratch buffers, reused across segments within this call. ISignalProcessor
+        // is registered as a singleton and ComputePsd is invoked concurrently by per-connection
+        // pipelines — these must stay method-local (never instance fields) to remain reentrant.
+        var re = new double[FftSize];
+        var im = new double[FftSize];
+
         for (int start = 0; start + FftSize <= count || (segments == 0 && start == 0); start += Overlap)
         {
-            var re = new double[FftSize];
-            var im = new double[FftSize];
             for (int n = 0; n < FftSize; n++)
             {
                 int idx = start + n;
@@ -47,6 +51,13 @@ public sealed class SignalProcessor : ISignalProcessor
                 {
                     re[n] = block.I[idx] * w;
                     im[n] = block.Q[idx] * w;
+                }
+                else
+                {
+                    // Reused buffer: a prior segment's tail must not leak into a short padded
+                    // final segment (a freshly allocated array would have been zero here).
+                    re[n] = 0.0;
+                    im[n] = 0.0;
                 }
             }
 

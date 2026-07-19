@@ -86,6 +86,17 @@ public class DecodeFmTests
         Assert.Equal("1234", outcome.Frame!.Identifiers["pi"]);
     }
 
+    // #12: PS segment 0 only ("AB") must not persist NUL padding for the 6 unseen characters.
+    [Fact]
+    public void Decode_SingleGroup_PsHasNoNulPadding()
+    {
+        var outcome = Decoder.Decode(Group0A(0xC479, 0, 'A', 'B'));
+
+        Assert.True(outcome.Success);
+        Assert.Equal("AB", outcome.Frame!.Identifiers["ps"]);
+        Assert.DoesNotContain('\0', outcome.Frame.Identifiers["ps"]);
+    }
+
     // AC-D6: corrupt a checkword → offset validation fails → Rejected.
     [Fact]
     public void Decode_BadCheckword_Rejected()

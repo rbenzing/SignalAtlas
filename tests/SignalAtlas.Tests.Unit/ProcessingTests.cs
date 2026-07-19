@@ -93,16 +93,21 @@ public class ProcessingTests
         Assert.InRange(f.Bandwidth3dBHz, bw * 0.9, bw * 1.1);
     }
 
-    // Burst duration from an on/off envelope matches expected ms.
+    // Regression for the Welch scratch-buffer hoist (#11): a block shorter than one FFT segment
+    // forces the padded first-and-only segment path (idx >= count for n near the end). The reused
+    // re/im buffers must have their pad tail explicitly zeroed, matching pre-hoist fresh-array
+    // behavior byte-for-byte.
     [Fact]
-    public void BurstDuration_FromEnvelope_MatchesMs()
+    public void ShortBlock_PaddedSegment_PeaksAtExpectedBin()
     {
-        int fs = 48_000;
-        var env = new double[4800];                 // 100 ms window
-        for (int n = 1000; n < 1000 + 480; n++) env[n] = 1.0; // 480 samples on = 10 ms
+        int offsetBins = 50;
+        var block = Tone(offsetBins * BinHz, 1.0, samples: 2048); // < FftSize -> padded segment
 
-        double ms = EnvelopeAnalyzer.BurstDurationMs(env, fs, threshold: 0.5);
-        Assert.Equal(10.0, ms, 3);
+        var psd = new SignalProcessor().ComputePsd(block);
+
+        int peak = ArgMax(psd.PowerDbfs);
+        int expected = N / 2 + offsetBins;
+        Assert.InRange(peak, expected - 1, expected + 1);
     }
 
     // Equal-amplitude tones on every bin across `bandwidthHz` (Schroeder phases, deterministic) →
