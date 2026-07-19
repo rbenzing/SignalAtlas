@@ -41,8 +41,15 @@ public sealed class DeferredClaudeAnalyzer(
     // Persistent-enough for the edge process lifetime: offline runs wait here until reconnect (AC-DA5).
     private readonly Queue<(Guid RunId, AnalysisRequest Request)> _queue = new();
 
+    // Guards ONLY the queue's Enqueue/Dequeue ops (#10) — Run/RunQueued may be invoked concurrently
+    // (e.g. the POST handler racing the reconnect drain). Never hold this across Execute (does I/O).
+    private readonly object _queueLock = new();
+
     public AnalysisRun Run(AnalysisRequest req)
     {
+        // A run is triggered per API request; per-request GUIDs are explicitly allowed at the API/HTTP
+        // layer (CLAUDE.md prime invariant #4) even though the deterministic core avoids Guid.NewGuid.
+        // Do NOT "fix" this to DeterministicGuid — only the enrichment id below needs determinism.
         var runId = Guid.NewGuid();
 
         // AC-DA5: offline → the run is QUEUED (not failed) and executes on reconnect.
@@ -53,7 +60,7 @@ public sealed class DeferredClaudeAnalyzer(
                 AnalysisRun.ClaudeEngine, req.Model, AnalysisRun.Queued,
                 Started: null, Finished: null, ReportJson: null, TokensUsed: 0);
             _runs.Add(queued);
-            _queue.Enqueue((runId, req));
+            lock (_queueLock) { _queue.Enqueue((runId, req)); }
             return queued;
         }
 
@@ -71,10 +78,15 @@ public sealed class DeferredClaudeAnalyzer(
         if (!_connectivity.IsOnline)
             return executed;
 
-        while (_queue.Count > 0)
+        while (true)
         {
-            var (runId, req) = _queue.Dequeue();
-            executed.Add(Execute(runId, req));
+            (Guid RunId, AnalysisRequest Request) item;
+            lock (_queueLock)
+            {
+                if (_queue.Count == 0) break;
+                item = _queue.Dequeue();
+            }
+            executed.Add(Execute(item.RunId, item.Request));
         }
 
         return executed;
@@ -88,8 +100,10 @@ public sealed class DeferredClaudeAnalyzer(
             AnalysisRun.ClaudeEngine, req.Model, AnalysisRun.Running,
             started, Finished: null, ReportJson: null, TokensUsed: 0));
 
-        var scopedSignals = _signals.GetSignals(int.MaxValue)
-            .Where(s => (req.From is null || s.Time >= req.From) && (req.To is null || s.Time <= req.To))
+        // #8: server-side windowed read (GetSince pushes the >= filter to the store, e.g. Npgsql) instead
+        // of pulling the whole signals table and filtering both bounds in memory.
+        var scopedSignals = _signals.GetSince(req.From ?? DateTimeOffset.MinValue)
+            .Where(s => req.To is null || s.Time <= req.To)
             .ToList();
         var scopedEmitters = _emitters.All();
 
@@ -117,8 +131,12 @@ public sealed class DeferredClaudeAnalyzer(
             });
 
             // Overlay-only (AC-DA2): we ADD an enrichment; we NEVER call any signal/emitter writer.
+            // #21: deterministic + idempotent id (P5) — the tool/egress layer is Claude-free and must
+            // reproduce identical output for identical input; re-running the same run over the same
+            // signal yields the same enrichment id instead of a fresh Guid.NewGuid() each time.
+            var enrichmentId = DeterministicGuid.From($"{runId}:signal:{s.Id.ToString(CultureInfo.InvariantCulture)}");
             _enrichments.Add(new Enrichment(
-                Guid.NewGuid(), runId, "signal", s.Id.ToString(CultureInfo.InvariantCulture),
+                enrichmentId, runId, "signal", s.Id.ToString(CultureInfo.InvariantCulture),
                 Enrichment.Reclassification, proposal, [citation], Enrichment.Proposed, _clock.UtcNow));
         }
 

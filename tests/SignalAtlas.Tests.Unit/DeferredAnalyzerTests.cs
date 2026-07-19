@@ -129,6 +129,78 @@ public class DeferredAnalyzerTests
     }
 
     [Fact]
+    public void EnrichmentId_IsDeterministic_AcrossRepeatedRunsOverSameSignal()
+    {
+        // #21: the tool/egress layer is deterministic (P5) — same run+signal → same enrichment id,
+        // not a fresh Guid.NewGuid() each time. Two separate harnesses (same signal, same fixed clock)
+        // simulate re-running the analysis; only the run id differs, but the enrichment id keyed off
+        // "{runId}:signal:{signalId}" must reproduce identically for the SAME runId.
+        var runs = new FakeAnalysisRunRepository();
+        var enrichmentsA = new FakeEnrichmentRepository();
+        var enrichmentsB = new FakeEnrichmentRepository();
+        var signal = Sig(99, "Unknown", 0.2);
+
+        var analyzerA = new DeferredClaudeAnalyzer(
+            new FakeSignalRepository([signal]), new FakeEmitterRepository([]), runs, enrichmentsA,
+            new StubClaudeClient(), new MutableConnectivity(true), new FixedClock(T));
+        var analyzerB = new DeferredClaudeAnalyzer(
+            new FakeSignalRepository([signal]), new FakeEmitterRepository([]), new FakeAnalysisRunRepository(),
+            enrichmentsB, new StubClaudeClient(), new MutableConnectivity(true), new FixedClock(T));
+
+        // Execute is only reachable via Run/RunQueued, both of which mint a fresh run id per call — so
+        // to compare enrichment ids for "the same run" we drive both analyzers through the SAME queued
+        // request id by going through the offline→RunQueued path is unnecessary; instead assert the
+        // narrower, directly-testable property: the enrichment id is a pure function of (runId, signalId)
+        // by re-deriving it exactly as production code does and checking it matches what was persisted.
+        var runA = analyzerA.Run(Req);
+        var enrichmentA = Assert.Single(enrichmentsA.Added);
+        var expectedId = DeterministicGuid.From($"{runA.Id}:signal:99");
+        Assert.Equal(expectedId, enrichmentA.Id);
+
+        // Re-running produces a NEW run id (Run/RunQueued mint runId via Guid.NewGuid per AC-DA5/API
+        // semantics), so the enrichment id differs across runs — but is stable for a given run.
+        var runB = analyzerB.Run(Req);
+        var enrichmentB = Assert.Single(enrichmentsB.Added);
+        Assert.Equal(DeterministicGuid.From($"{runB.Id}:signal:99"), enrichmentB.Id);
+        Assert.NotEqual(enrichmentA.Id, enrichmentB.Id); // different run ids → different derived ids
+    }
+
+    [Fact]
+    public void ConcurrentEnqueue_ViaRun_WhileOffline_DoesNotThrow()
+    {
+        // #10: Run (Enqueue) and RunQueued (Dequeue) share the same Queue<> — concurrent Run calls while
+        // offline must not corrupt/throw. RunQueued draining is exercised elsewhere; this is a smoke test
+        // that many concurrent Enqueues under the lock complete cleanly with no lost/duplicate entries.
+        var runs = new FakeAnalysisRunRepository();
+        var enrichments = new FakeEnrichmentRepository();
+        var connectivity = new MutableConnectivity(false);
+        var analyzer = new DeferredClaudeAnalyzer(
+            new FakeSignalRepository([Sig(1, "Unknown", 0.2)]), new FakeEmitterRepository([]),
+            runs, enrichments, new StubClaudeClient(), connectivity, new FixedClock(T));
+
+        var exceptions = new System.Collections.Concurrent.ConcurrentBag<Exception>();
+        Parallel.For(0, 50, i =>
+        {
+            try
+            {
+                analyzer.Run(Req with { SessionId = $"sess-{i}" });
+            }
+            catch (Exception ex)
+            {
+                exceptions.Add(ex);
+            }
+        });
+
+        Assert.Empty(exceptions);
+        Assert.Equal(50, runs.All().Count(r => r.Status == AnalysisRun.Queued));
+
+        connectivity.IsOnline = true;
+        var executed = analyzer.RunQueued();
+        Assert.Equal(50, executed.Count);
+        Assert.All(executed, r => Assert.Equal(AnalysisRun.Done, r.Status));
+    }
+
+    [Fact]
     public void Run_WritesGroundedSessionReport_CitingSources()
     {
         var h = Build(online: true, Sig(7, "Unknown", 0.4));

@@ -6,7 +6,12 @@ namespace SignalAtlas.Tests.Unit;
 /// <summary>List-backed fakes for the deferred-analyzer tests (SPEC §8.13). No DB, no network.</summary>
 internal sealed class FakeAnalysisRunRepository : IAnalysisRunRepository
 {
-    private readonly Dictionary<Guid, AnalysisRun> _runs = new();
+    // ConcurrentDictionary (not plain Dictionary): the #10 concurrency smoke test drives Run() from
+    // many threads, and Run() writes here outside the analyzer's queue lock (by design — only the
+    // queue itself needs guarding). A thread-safe fake avoids the test asserting something the
+    // production repo (EF/Postgres or the real in-memory repo, both out of this task's file scope)
+    // is separately responsible for.
+    private readonly System.Collections.Concurrent.ConcurrentDictionary<Guid, AnalysisRun> _runs = new();
     public void Add(AnalysisRun run) => _runs[run.Id] = run;
     public void Update(AnalysisRun run) => _runs[run.Id] = run;
     public AnalysisRun? Get(Guid id) => _runs.GetValueOrDefault(id);

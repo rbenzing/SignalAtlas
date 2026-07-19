@@ -48,7 +48,8 @@ public sealed class AnalystRetrieval(
         var cutoff = _clock.UtcNow - window;
 
         var recentAlerts = _alerts.GetAlerts(int.MaxValue).Where(a => a.Time >= cutoff).ToList();
-        var recentSignals = _signals.GetSignals(int.MaxValue).Where(s => s.Time >= cutoff).ToList();
+        // #8: server-side windowed read (GetSince) instead of pulling the whole signals table.
+        var recentSignals = _signals.GetSince(cutoff).ToList();
 
         if (recentAlerts.Count == 0 && recentSignals.Count == 0)
             return Empty();
