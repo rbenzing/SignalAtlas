@@ -47,7 +47,9 @@ public sealed class MlClassifier : IClassifier
         int dim = _model.FeatureNames.Length;
         var raw = FeatureEncoder.Encode(features);
         var xStd = new double[dim];
-        for (int j = 0; j < dim; j++) xStd[j] = (raw[j] - _model.Means[j]) / _model.Stds[j];
+        // Defensive belt: MlModel.FromJson already clamps Stds >= MinStd, but guard the divide here
+        // too in case a model is constructed some other way. No-op for well-formed models.
+        for (int j = 0; j < dim; j++) xStd[j] = (raw[j] - _model.Means[j]) / Math.Max(_model.Stds[j], MlModel.MinStd);
 
         var probs = new double[_model.Labels.Length];
         MlTrainer.Softmax(_model.Weights, _model.Bias, xStd, probs);

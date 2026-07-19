@@ -28,6 +28,15 @@ public sealed class DeterministicRng
     /// <summary>Uniform integer in [minInclusive, maxExclusive).</summary>
     public int NextInt(int minInclusive, int maxExclusive)
     {
+        if (maxExclusive < minInclusive)
+            throw new ArgumentOutOfRangeException(nameof(maxExclusive), "maxExclusive must be >= minInclusive.");
+        if (maxExclusive == minInclusive)
+            return minInclusive; // empty range — no draw consumed, matches System.Random.Next(x,x)
+
+        // Modulo bias is intentionally NOT corrected here (no rejection sampling): doing so would
+        // change how many draws are consumed per call and shift every downstream seeded sequence
+        // (SyntheticDataset / MlTrainer determinism, P5). The bias is negligible for the ML layer's
+        // small, fixed ranges and preserving the exact draw sequence matters more than uniformity here.
         var span = (ulong)(maxExclusive - minInclusive);
         return minInclusive + (int)(NextUInt64() % span);
     }

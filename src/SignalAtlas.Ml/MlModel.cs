@@ -23,11 +23,26 @@ public sealed class MlModel
     /// <summary>Per-class bias term, aligned to <see cref="Labels"/>.</summary>
     public required double[] Bias { get; init; }
 
+    /// <summary>
+    /// Minimum standard deviation enforced on load — mirrors <c>MlTrainer</c>'s own clamp so a
+    /// well-formed model's stds (already &gt;= this) are byte-identical, while a degenerate/hand-edited
+    /// artifact (std == 0) can no longer produce Infinity/NaN at the standardization divide
+    /// (<see cref="MlClassifier"/>, <see cref="DriftMonitor"/>).
+    /// </summary>
+    public const double MinStd = 1e-9;
+
     private static readonly JsonSerializerOptions JsonOpts = new() { WriteIndented = true };
 
     public string ToJson() => JsonSerializer.Serialize(this, JsonOpts);
 
-    public static MlModel FromJson(string json) =>
-        JsonSerializer.Deserialize<MlModel>(json)
-        ?? throw new InvalidOperationException("MlModel JSON deserialized to null.");
+    public static MlModel FromJson(string json)
+    {
+        var model = JsonSerializer.Deserialize<MlModel>(json)
+            ?? throw new InvalidOperationException("MlModel JSON deserialized to null.");
+
+        for (int j = 0; j < model.Stds.Length; j++)
+            if (model.Stds[j] < MinStd) model.Stds[j] = MinStd;
+
+        return model;
+    }
 }

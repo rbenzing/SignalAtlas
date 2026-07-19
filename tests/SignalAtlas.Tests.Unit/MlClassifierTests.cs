@@ -55,4 +55,78 @@ public class MlClassifierTests
         Assert.Equal(a.Protocol, b.Protocol);
         Assert.Equal(a.Confidence, b.Confidence);
     }
+
+    /// <summary>
+    /// Builds a tiny degenerate 2-class model where one feature has a 0 std (as a hand-edited or
+    /// corrupted artifact might). Zero-fill weights so the finite check exercises the standardize
+    /// step specifically.
+    /// </summary>
+    private static MlModel BuildDegenerateModel()
+    {
+        int dim = FeatureEncoder.Dimension;
+        var means = new double[dim];
+        var stds = new double[dim];
+        for (int j = 0; j < dim; j++) stds[j] = 1.0;
+        stds[0] = 0.0; // degenerate: center_freq_mhz std collapsed to 0
+
+        return new MlModel
+        {
+            Labels = new[] { "LoRa", "ADS-B" },
+            FeatureNames = (string[])FeatureEncoder.FeatureNames.Clone(),
+            Means = means,
+            Stds = stds,
+            Weights = new[] { new double[dim], new double[dim] },
+            Bias = new double[2],
+        };
+    }
+
+    [Fact]
+    public void FromJson_ClampsZeroStdOnLoad()
+    {
+        var json = BuildDegenerateModel().ToJson();
+        var loaded = MlModel.FromJson(json);
+        Assert.All(loaded.Stds, s => Assert.True(s >= MlModel.MinStd));
+    }
+
+    [Fact]
+    public void Classify_ZeroStdViaFromJsonRoundTrip_ProducesNoNaNOrInfinity()
+    {
+        var json = BuildDegenerateModel().ToJson();
+        var loaded = MlModel.FromJson(json);
+        var classifier = new MlClassifier(loaded);
+
+        var r = classifier.Classify(LoRa());
+
+        Assert.False(double.IsNaN(r.Confidence));
+        Assert.False(double.IsInfinity(r.Confidence));
+        Assert.InRange(r.Confidence, 0.0, 1.0);
+        Assert.Contains(r.Protocol, loaded.Labels);
+    }
+
+    [Fact]
+    public void Classify_ZeroStdBypassingFromJson_ProducesNoNaNOrInfinity()
+    {
+        // Constructs a model directly (bypassing MlModel.FromJson's load-time clamp) to prove the
+        // defensive belt at the MlClassifier.Classify divide site alone is enough to avoid NaN.
+        var degenerate = BuildDegenerateModel();
+        var classifier = new MlClassifier(degenerate);
+
+        var r = classifier.Classify(LoRa());
+
+        Assert.False(double.IsNaN(r.Confidence));
+        Assert.False(double.IsInfinity(r.Confidence));
+        Assert.InRange(r.Confidence, 0.0, 1.0);
+        Assert.Contains(r.Protocol, degenerate.Labels);
+    }
+
+    [Fact]
+    public void Classify_NormalModel_UnchangedByStdGuard()
+    {
+        // The default (well-formed) model's classification must be identical after the guard was
+        // added — its Stds are already >= MlModel.MinStd (trainer clamps to 1e-9 -> 1.0), so
+        // Math.Max(std, MinStd) is a no-op.
+        var r = Classifier.Classify(LoRa());
+        Assert.Equal("LoRa", r.Protocol);
+        Assert.False(double.IsNaN(r.Confidence));
+    }
 }

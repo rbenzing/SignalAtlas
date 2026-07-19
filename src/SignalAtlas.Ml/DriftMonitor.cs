@@ -45,7 +45,9 @@ public sealed class DriftMonitor : IDriftMonitor
         for (int j = 0; j < NumericFeatureCount; j++)
         {
             double recentMean = sums[j] / recentFeatures.Count;
-            double shift = Math.Abs(recentMean - _baseline.Means[j]) / _baseline.Stds[j];
+            // Defensive belt: MlModel.FromJson already clamps Stds >= MinStd; guard the divide here
+            // too in case a baseline model is constructed some other way. No-op for well-formed models.
+            double shift = Math.Abs(recentMean - _baseline.Means[j]) / Math.Max(_baseline.Stds[j], MlModel.MinStd);
             if (shift > Threshold) return true;
         }
 
