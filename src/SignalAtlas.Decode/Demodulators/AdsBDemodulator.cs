@@ -9,6 +9,14 @@ namespace SignalAtlas.Decode.Demodulators;
 /// downstream. Pure DSP: deterministic, receive-only, reads only the magnitude envelope (L1/L2/P5).
 /// Requires an even-MHz sample rate (2 MS/s is what the ADS-B preset tunes and what is tested) — the
 /// half-µs slot grid needs an integer number of samples per slot, so other rates are declined cleanly.
+///
+/// STATEFUL streaming scanner (per-stream instance): a Mode S burst whose preamble falls near the
+/// end of one <see cref="IqBlock"/> and completes in the next must not be dropped, so the unconsumed
+/// tail of magnitude samples (always shorter than one frame) is retained between calls and prepended
+/// to the next block. This is only safe because each ingestion stream/connection gets its OWN demod
+/// instance (DI is Transient, not Singleton — see Program.cs) and one <c>IngestionPipeline.Run</c>
+/// feeds that instance its stream's blocks sequentially, so <c>_carry</c> is single-threaded per
+/// stream. Still pure magnitude-envelope DSP: deterministic, receive-only, no wall clock, no RNG.
 /// </summary>
 public sealed class AdsBDemodulator : IDemodulator
 {
@@ -19,36 +27,69 @@ public sealed class AdsBDemodulator : IDemodulator
     private const int FrameSlots = PreambleSlots + FrameBits * 2; // 240
     private const double LowCeilRatio = 0.5;                 // every non-pulse preamble slot must sit below half the pulse level
 
+    // Retained tail of magnitude samples carried from the previous block (see class doc). Bounded:
+    // always shorter than one frame's worth of samples (< FrameSlots * hus).
+    private double[] _carry = Array.Empty<double>();
+    private long _carryCenterHz;
+    private int _carryRateHz;
+
     public string Protocol => "ADS-B";
 
     public IEnumerable<ReadOnlyMemory<byte>> Demodulate(IqBlock block, FeatureVector features)
     {
-        // Self-gate: 1090 MHz must sit inside the captured band, else this block isn't ours.
+        // Self-gate: 1090 MHz must sit inside the captured band, else this block isn't ours. A
+        // non-ours block must not leave stale carry samples to be spliced into a later, unrelated
+        // block, so reset it before bailing.
         long half = block.SampleRateHz / 2L;
         if (AdsBFreqHz < block.CenterFreqHz - half || AdsBFreqHz > block.CenterFreqHz + half)
+        {
+            _carry = Array.Empty<double>();
             yield break;
+        }
 
         int hus = (block.SampleRateHz / 1_000_000) / 2; // samples per half-µs slot
-        if (hus < 1) yield break;                        // need >= 2 MS/s
+        if (hus < 1)
+        {
+            _carry = Array.Empty<double>();
+            yield break;                        // need >= 2 MS/s
+        }
 
         // The half-µs slot grid needs an integer number of samples per slot, so the rate must be an
         // even number of MHz (2 MS/s is what the ADS-B preset tunes and what is tested). A fractional
         // rate (e.g. 2.4 MS/s) would misalign the 240-slot frame, so decline cleanly instead of
         // emitting misaligned garbage for the decoder to CRC-reject.
-        if (block.SampleRateHz % 2_000_000 != 0) yield break;
+        if (block.SampleRateHz % 2_000_000 != 0)
+        {
+            _carry = Array.Empty<double>();
+            yield break;
+        }
+
+        // Retune guard: samples carried from a different tuning must never be spliced onto this
+        // block's samples.
+        if (_carry.Length > 0 && (block.CenterFreqHz != _carryCenterHz || block.SampleRateHz != _carryRateHz))
+            _carry = Array.Empty<double>();
+        _carryCenterHz = block.CenterFreqHz;
+        _carryRateHz = block.SampleRateHz;
 
         float[] iCh = block.I, qCh = block.Q;
         int n = iCh.Length;
         var mag = new double[n];
         for (int k = 0; k < n; k++) mag[k] = (double)iCh[k] * iCh[k] + (double)qCh[k] * qCh[k];
 
+        // Prepend the retained tail from the previous block. One allocation per block, not per
+        // segment.
+        var combined = new double[_carry.Length + mag.Length];
+        Array.Copy(_carry, combined, _carry.Length);
+        Array.Copy(mag, 0, combined, _carry.Length, mag.Length);
+
         int frameSamples = FrameSlots * hus;
         int pos = 0;
-        while (pos + frameSamples <= n)
+        int total = combined.Length;
+        while (pos + frameSamples <= total)
         {
-            if (TryPreamble(mag, pos, hus))
+            if (TryPreamble(combined, pos, hus))
             {
-                yield return SliceFrame(mag, pos, hus);
+                yield return SliceFrame(combined, pos, hus);
                 pos += frameSamples;   // consume the frame; resume scanning after it
             }
             else
@@ -56,6 +97,11 @@ public sealed class AdsBDemodulator : IDemodulator
                 pos++;
             }
         }
+
+        // Retain the unconsumed tail (always < frameSamples long) as the carry for the next block —
+        // it may hold the start of a frame that completes there. Every fully-contained frame in this
+        // block was already emitted above and pos advanced past it, so no frame is ever emitted twice.
+        _carry = combined.AsSpan(pos).ToArray();
     }
 
     // Energy in one half-µs slot = sum of magnitude over its hus samples.
