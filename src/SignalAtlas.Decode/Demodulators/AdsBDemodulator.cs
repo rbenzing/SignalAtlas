@@ -35,8 +35,16 @@ public sealed class AdsBDemodulator : IDemodulator
 
     public string Protocol => "ADS-B";
 
+    // EAGER, not a lazy iterator: the per-stream _carry mutation (and the gate/retune resets) must
+    // happen exactly once per call, regardless of how the caller consumes the result (foreach,
+    // .FirstOrDefault(), .Take(n), double-enumeration, or not at all). A `yield return`-based
+    // iterator would defer all of that state mutation to enumeration time — safe only as long as
+    // every caller happens to fully enumerate, which the IEnumerable<T> signature does not enforce.
+    // Building the frame list eagerly makes the carry update deterministic and enumeration-independent.
     public IEnumerable<ReadOnlyMemory<byte>> Demodulate(IqBlock block, FeatureVector features)
     {
+        var frames = new List<ReadOnlyMemory<byte>>();
+
         // Self-gate: 1090 MHz must sit inside the captured band, else this block isn't ours. A
         // non-ours block must not leave stale carry samples to be spliced into a later, unrelated
         // block, so reset it before bailing.
@@ -44,14 +52,14 @@ public sealed class AdsBDemodulator : IDemodulator
         if (AdsBFreqHz < block.CenterFreqHz - half || AdsBFreqHz > block.CenterFreqHz + half)
         {
             _carry = Array.Empty<double>();
-            yield break;
+            return frames;
         }
 
         int hus = (block.SampleRateHz / 1_000_000) / 2; // samples per half-µs slot
         if (hus < 1)
         {
             _carry = Array.Empty<double>();
-            yield break;                        // need >= 2 MS/s
+            return frames;                      // need >= 2 MS/s
         }
 
         // The half-µs slot grid needs an integer number of samples per slot, so the rate must be an
@@ -61,7 +69,7 @@ public sealed class AdsBDemodulator : IDemodulator
         if (block.SampleRateHz % 2_000_000 != 0)
         {
             _carry = Array.Empty<double>();
-            yield break;
+            return frames;
         }
 
         // Retune guard: samples carried from a different tuning must never be spliced onto this
@@ -89,7 +97,7 @@ public sealed class AdsBDemodulator : IDemodulator
         {
             if (TryPreamble(combined, pos, hus))
             {
-                yield return SliceFrame(combined, pos, hus);
+                frames.Add(SliceFrame(combined, pos, hus));
                 pos += frameSamples;   // consume the frame; resume scanning after it
             }
             else
@@ -102,6 +110,8 @@ public sealed class AdsBDemodulator : IDemodulator
         // it may hold the start of a frame that completes there. Every fully-contained frame in this
         // block was already emitted above and pos advanced past it, so no frame is ever emitted twice.
         _carry = combined.AsSpan(pos).ToArray();
+
+        return frames;
     }
 
     // Energy in one half-µs slot = sum of magnitude over its hus samples.
