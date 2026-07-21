@@ -43,9 +43,14 @@ export const bandPresets: BandPreset[] = [
     lowHz: 1_087_000_000,
     highHz: 1_093_000_000,
     centerFreqHz: 1_090_000_000,
-    sampleRateHz: 2 * MS,
+    // 8 MS/s, not the 2 MS/s floor: Mode S is a 0.5 µs half-slot format, so 2 MS/s gives the
+    // demodulator only ONE sample per slot (hus=1) with no intra-slot averaging — real-world
+    // timing jitter then routinely fails its strict preamble gate, starving even/odd CPR pairing
+    // and leaving aircraft off the map. 8 MS/s (hus=4) averages 4 samples/slot for robust live
+    // decode. Must stay an even multiple of 2 MHz (AdsBDemodulator declines fractional rates).
+    sampleRateHz: 8 * MS,
     channels: [
-      { key: "adsb-1090", label: "1090 MHz", centerFreqHz: 1_090_000_000, sampleRateHz: 2 * MS },
+      { key: "adsb-1090", label: "1090 MHz", centerFreqHz: 1_090_000_000, sampleRateHz: 8 * MS },
     ],
   },
   {
