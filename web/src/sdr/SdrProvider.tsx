@@ -1,5 +1,5 @@
 import { createContext, useCallback, useContext, useEffect, useReducer, useRef } from "react";
-import { HackRfDevice, type HackRfDeviceInfo } from "./hackrf";
+import { HackRfDevice, type HackRfDeviceInfo, computeBasebandFilterBw } from "./hackrf";
 import { IqSocket, type IqStreamConfig } from "./iqSocket";
 
 export type SdrStatus = "idle" | "requesting" | "streaming" | "error";
@@ -111,8 +111,10 @@ export function SdrProvider({ children }: { children: React.ReactNode }) {
   // configFrame/applyTuningToDevice/startStreaming MUST read tuning from tuningRef,
   // never from `state`, to avoid stale-closure bugs (refs are updated synchronously
   // by setTuning; `state.tuning` only updates on the next render).
-  // Baseband filter width mirrors applyTuningToDevice's setBasebandFilter(t.sampleRateHz) call
-  // below — same value, so the reported provenance matches what was actually set on the device.
+  // Baseband filter width is the ACTUAL width the device applies: applyTuningToDevice calls
+  // setBasebandFilter(t.sampleRateHz), which rounds down to a valid HackRF width via
+  // computeBasebandFilterBw (e.g. 2 MHz -> 1.75 MHz). Report that rounded value so the provenance
+  // reflects the real analog passband, not the raw requested rate (SPEC §8.1 honest provenance).
   const configFrame = (t: SdrTuning): IqConfigFrame => ({
     type: "config",
     centerFreqHz: t.centerFreqHz,
@@ -122,7 +124,7 @@ export function SdrProvider({ children }: { children: React.ReactNode }) {
     lnaDb: t.lnaGain,
     vgaDb: t.vgaGain,
     ampEnable: t.ampEnable,
-    basebandBwHz: t.sampleRateHz,
+    basebandBwHz: computeBasebandFilterBw(t.sampleRateHz),
     biasTee: t.biasTee,
   });
 

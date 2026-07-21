@@ -13,7 +13,9 @@ const hoisted = vi.hoisted(() => ({
   isConnectedMock: vi.fn(),
 }));
 
-vi.mock("./hackrf", () => ({
+vi.mock("./hackrf", async () => ({
+  // Keep the real pure helpers (computeBasebandFilterBw etc.); only HackRfDevice is faked.
+  ...(await vi.importActual<typeof import("./hackrf")>("./hackrf")),
   HackRfDevice: class {
     connect() {
       return hoisted.connectMock();
@@ -141,7 +143,7 @@ describe("SdrProvider config frame RX-config provenance", () => {
       lnaDb: 16,
       vgaDb: 20,
       ampEnable: false,
-      basebandBwHz: 2_000_000, // mirrors setBasebandFilter(t.sampleRateHz)
+      basebandBwHz: 1_750_000, // computeBasebandFilterBw(2 MHz) rounds down to the 1.75 MHz HackRF width
       biasTee: false,
     });
   });
@@ -175,7 +177,7 @@ describe("SdrProvider config frame RX-config provenance", () => {
       lnaDb: 32,
       vgaDb: 20,
       ampEnable: false,
-      basebandBwHz: 2_000_000,
+      basebandBwHz: 1_750_000, // actual rounded HackRF filter width for a 2 MHz sample rate
       biasTee: true,
     });
   });

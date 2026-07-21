@@ -1,3 +1,4 @@
+using System.Linq;
 using System.Net.WebSockets;
 using System.Text;
 using System.Text.Json;
@@ -202,5 +203,63 @@ public class IqIngressEndpointTests(WebApplicationFactory<Program> factory)
         Assert.Same(receiveTask, completed);
         var result = await receiveTask;
         Assert.Equal(WebSocketMessageType.Close, result.MessageType);
+    }
+
+    [Fact]
+    public async Task Streaming_ConfigWithReceiverConfig_RecordsProvenanceOnObservation()
+    {
+        // Wire-contract guard (landmine #1): the browser's config-frame RX fields
+        // (ampEnable/lnaDb/vgaDb/basebandBwHz/biasTee) must deserialize into IqConfig and map onto a
+        // ReceiverConfig on the persisted Observation. If ANY JsonPropertyName on IqConfig drifts from
+        // the exact field names SdrProvider sends, the provenance goes silently null and this fails.
+        var notifier = new CapturingNotifier();
+        var app = factory.WithWebHostBuilder(b =>
+            b.ConfigureTestServices(s =>
+            {
+                s.RemoveAll(typeof(ILiveNotifier));
+                s.AddSingleton<ILiveNotifier>(notifier);
+            }));
+
+        var wsClient = app.Server.CreateWebSocketClient();
+        var uri = new UriBuilder(app.Server.BaseAddress) { Scheme = "ws", Path = "/ingest/iq" }.Uri;
+        using var ws = await wsClient.ConnectAsync(uri, CancellationToken.None);
+
+        // Field names here mirror SdrProvider.tsx's config frame verbatim.
+        var config = JsonSerializer.Serialize(new
+        {
+            type = "config",
+            centerFreqHz = 915_000_000L,
+            sampleRateHz = 2_000_000,
+            samplesPerBlock = 8,
+            collectorId = "web-hackrf-test",
+            ampEnable = true,
+            lnaDb = 24,
+            vgaDb = 30,
+            basebandBwHz = 1_750_000,
+            biasTee = true,
+        });
+        await ws.SendAsync(Encoding.UTF8.GetBytes(config), WebSocketMessageType.Text, true, CancellationToken.None);
+
+        var iq = new byte[16];
+        for (int i = 0; i < iq.Length; i++) iq[i] = (byte)(i % 2 == 0 ? 100 : 50);
+        await ws.SendAsync(iq, WebSocketMessageType.Binary, true, CancellationToken.None);
+
+        // The spectrum-frame broadcast signals the block was processed (Observation already written).
+        var completed = await Task.WhenAny(notifier.First.Task, Task.Delay(TimeSpan.FromSeconds(5)));
+        Assert.Same(notifier.First.Task, completed);
+        await notifier.First.Task;
+
+        var observations = app.Services.GetRequiredService<IObservationRepository>();
+        ReceiverConfig? rx = null;
+        for (int attempt = 0; attempt < 50 && rx is null; attempt++)
+        {
+            rx = observations.GetRecent(20).FirstOrDefault(o => o.ReceiverConfig is not null)?.ReceiverConfig;
+            if (rx is null) await Task.Delay(20);
+        }
+
+        Assert.NotNull(rx);
+        Assert.Equal(new ReceiverConfig(AmpEnable: true, LnaDb: 24, VgaDb: 30, BasebandBwHz: 1_750_000, BiasTee: true), rx);
+
+        await ws.CloseAsync(WebSocketCloseStatus.NormalClosure, "done", CancellationToken.None);
     }
 }
