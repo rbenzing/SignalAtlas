@@ -5,9 +5,6 @@ namespace SignalAtlas.Api;
 /// <summary>A validated page window: <see cref="Limit"/> rows starting at <see cref="Offset"/>.</summary>
 public readonly record struct Page(int Limit, int Offset)
 {
-    /// <summary>Rows to pull from the repo before skipping the offset (saturating to avoid overflow).</summary>
-    public int Take => (int)Math.Min((long)Offset + Limit, int.MaxValue);
-
     /// <summary>
     /// Rows to pull from the repo to both fill the page AND peek one row past it (saturating to avoid
     /// overflow), so endpoints can detect a next page without a repo-level Count().
