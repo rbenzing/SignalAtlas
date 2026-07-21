@@ -57,7 +57,8 @@ public sealed class HackRfSampleSource : ISampleSource
                     i[s] = (sbyte)span[idx] / 128f;      // same normalization as FileSampleSource
                     q[s] = (sbyte)span[idx + 1] / 128f;
                 }
-                yield return new IqBlock(_centerFreqHz, _sampleRateHz, i, q);
+                yield return new IqBlock(_centerFreqHz, _sampleRateHz, i, q,
+                    new ReceiverConfig(_gain.AmpEnable, _gain.LnaDb, _gain.VgaDb, _basebandBwHz, _biasTee));
             }
         }
         finally

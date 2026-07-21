@@ -178,6 +178,7 @@ public sealed class ReconnectingHackRfSampleSource : ISampleSource
             i[s] = (sbyte)span[idx] / 128f;
             q[s] = (sbyte)span[idx + 1] / 128f;
         }
-        return new IqBlock(_centerFreqHz, _sampleRateHz, i, q);
+        return new IqBlock(_centerFreqHz, _sampleRateHz, i, q,
+            new ReceiverConfig(_gain.AmpEnable, _gain.LnaDb, _gain.VgaDb, _basebandBwHz, _biasTee));
     }
 }

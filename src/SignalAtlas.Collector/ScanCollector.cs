@@ -45,7 +45,9 @@ public sealed class ScanCollector
             CollectorId: _collectorId,
             Seq: seq,
             FrequencyHz: block.CenterFreqHz,
-            BandwidthHz: block.SampleRateHz,
+            // True analog passband when the block carries receiver provenance; sample-rate fallback
+            // for sources with no real receiver (file replay, synthetic) where no filter width is known.
+            BandwidthHz: block.ReceiverConfig?.BasebandBwHz ?? block.SampleRateHz,
             Power: RelativePowerDbfs(block),
             PowerRef: PowerRef.Relative,
             SnrDb: null,
@@ -53,7 +55,8 @@ public sealed class ScanCollector
             Longitude: pos?.Longitude,
             PositionQuality: pos?.Quality ?? PositionQuality.None,
             IqRef: null,
-            CorrelationId: DeterministicGuid.From($"{_collectorId}:{seq}"));
+            CorrelationId: DeterministicGuid.From($"{_collectorId}:{seq}"),
+            ReceiverConfig: block.ReceiverConfig);
     }
 
     /// <summary>Mean-power of the block expressed as dBFS relative to full scale (G20).</summary>

@@ -48,6 +48,14 @@ public sealed class SignalAtlasDbContext(DbContextOptions<SignalAtlasDbContext> 
         var featuresComparer = JsonComparer<IReadOnlyDictionary<string, double>, Dictionary<string, double>>();
         var idsConverter = JsonConverter<IReadOnlyDictionary<string, string>, Dictionary<string, string>>();
         var idsComparer = JsonComparer<IReadOnlyDictionary<string, string>, Dictionary<string, string>>();
+        var receiverConfigConverter = new ValueConverter<ReceiverConfig?, string?>(
+            v => v == null ? null : JsonSerializer.Serialize(v, Json),
+            v => v == null ? null : JsonSerializer.Deserialize<ReceiverConfig>(v, Json));
+        var receiverConfigComparer = new ValueComparer<ReceiverConfig?>(
+            (a, b) => (a == null && b == null) || (a != null && b != null &&
+                JsonSerializer.Serialize(a, Json) == JsonSerializer.Serialize(b, Json)),
+            v => v == null ? 0 : JsonSerializer.Serialize(v, Json).GetHashCode(),
+            v => v == null ? null : JsonSerializer.Deserialize<ReceiverConfig>(JsonSerializer.Serialize(v, Json), Json));
 
         // HYPERTABLE NOTE (SPEC §7.2, §4.6): observations/signals are Timescale hypertables partitioned
         // by `time`. Timescale requires the partitioning column to be part of every unique index, so on
@@ -70,6 +78,7 @@ public sealed class SignalAtlasDbContext(DbContextOptions<SignalAtlasDbContext> 
             e.Property(o => o.TimeSource).HasConversion<string>();
             e.Property(o => o.PowerRef).HasConversion<string>();
             e.Property(o => o.PositionQuality).HasConversion<string>();
+            e.Property(o => o.ReceiverConfig).HasConversion(receiverConfigConverter, receiverConfigComparer);
         });
 
         b.Entity<Signal>(e =>

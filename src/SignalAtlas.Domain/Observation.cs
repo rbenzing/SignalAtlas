@@ -19,4 +19,5 @@ public sealed record Observation(
     double? Longitude,
     PositionQuality PositionQuality,
     string? IqRef,
-    Guid CorrelationId);
+    Guid CorrelationId,
+    ReceiverConfig? ReceiverConfig = null);

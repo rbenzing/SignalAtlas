@@ -47,7 +47,8 @@ public sealed class SqliteRoundTripTests : IDisposable
             Longitude: -71.06,
             PositionQuality: PositionQuality.Good,
             IqRef: "ring://0/42",
-            CorrelationId: Guid.Parse("11111111-2222-3333-4444-555555555555"));
+            CorrelationId: Guid.Parse("11111111-2222-3333-4444-555555555555"),
+            ReceiverConfig: new ReceiverConfig(AmpEnable: true, LnaDb: 24, VgaDb: 20, BasebandBwHz: 1_750_000, BiasTee: false));
 
         new EfObservationRepository(NewContext()).Add(obs);
 
@@ -61,6 +62,36 @@ public sealed class SqliteRoundTripTests : IDisposable
         Assert.Equal(obs.CorrelationId, got.CorrelationId);
         Assert.Equal(obs.TimeSource, got.TimeSource);
         Assert.Equal(obs.Seq, got.Seq);
+        Assert.Equal(obs.ReceiverConfig, got.ReceiverConfig); // receiver-config provenance preserved
+    }
+
+    // #13 — a null ReceiverConfig (file/synthetic capture path) round-trips as null, not a default record.
+    [Fact]
+    public void Observation_WithNullReceiverConfig_RoundTripsAsNull()
+    {
+        var obs = new Observation(
+            Time: new DateTimeOffset(2026, 7, 7, 12, 34, 56, TimeSpan.Zero),
+            TimeSource: TimeSource.Gps,
+            CollectorId: "col-1",
+            Seq: 43,
+            FrequencyHz: 915_000_000,
+            BandwidthHz: 2_000_000,
+            Power: -37.5,
+            PowerRef: PowerRef.Relative,
+            SnrDb: null,
+            Latitude: null,
+            Longitude: null,
+            PositionQuality: PositionQuality.None,
+            IqRef: null,
+            CorrelationId: Guid.Parse("22222222-3333-4444-5555-666666666666"),
+            ReceiverConfig: null);
+
+        new EfObservationRepository(NewContext()).Add(obs);
+
+        var read = new EfObservationRepository(NewContext()).GetRecent(10);
+
+        var got = Assert.Single(read);
+        Assert.Null(got.ReceiverConfig);
     }
 
     [Fact]

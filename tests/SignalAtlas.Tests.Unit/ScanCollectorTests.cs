@@ -68,4 +68,30 @@ public class ScanCollectorTests
         Assert.Equal(-71.06, o.Longitude);
         Assert.Equal(PositionQuality.Good, o.PositionQuality);
     }
+
+    // #13 — BandwidthHz was mislabeled as the ADC sample rate; a block carrying a ReceiverConfig
+    // must yield the true analog passband (BasebandBwHz), and the config itself is carried through.
+    [Fact]
+    public void Observe_WithReceiverConfig_UsesBasebandBwAndCarriesConfig()
+    {
+        var receiverConfig = new ReceiverConfig(AmpEnable: true, LnaDb: 24, VgaDb: 20, BasebandBwHz: 1_750_000, BiasTee: false);
+        var block = new IqBlock(915_000_000, 2_000_000, [0f, 0f], [0f, 0f], receiverConfig);
+
+        var o = NewCollector().Observe(block, seq: 0);
+
+        Assert.Equal(1_750_000, o.BandwidthHz);
+        Assert.Equal(receiverConfig, o.ReceiverConfig);
+    }
+
+    // #13 — no ReceiverConfig (file/synthetic path) falls back to the sample rate and stays null.
+    [Fact]
+    public void Observe_WithNoReceiverConfig_FallsBackToSampleRate()
+    {
+        var block = new IqBlock(915_000_000, 2_000_000, [0f, 0f], [0f, 0f]);
+
+        var o = NewCollector().Observe(block, seq: 0);
+
+        Assert.Equal(2_000_000, o.BandwidthHz);
+        Assert.Null(o.ReceiverConfig);
+    }
 }
