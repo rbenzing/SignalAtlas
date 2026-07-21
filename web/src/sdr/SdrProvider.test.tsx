@@ -66,13 +66,15 @@ class FakeWebSocket {
   onopen: (() => void) | null = null;
   onclose: (() => void) | null = null;
   onerror: (() => void) | null = null;
+  /** Every frame passed to send(), in order — lets tests inspect the JSON config frames sent. */
+  sent: unknown[] = [];
 
   constructor(public url: string) {
     FakeWebSocket.instances.push(this);
   }
 
-  send(): void {
-    /* no-op */
+  send(data: unknown): void {
+    this.sent.push(data);
   }
 
   close(): void {
@@ -108,6 +110,74 @@ describe("SdrProvider connect() error handling", () => {
 
     expect(result.current.status).toBe("error");
     expect(result.current.error).toBe("No HackRF selected.");
+  });
+});
+
+describe("SdrProvider config frame RX-config provenance", () => {
+  it("sends lnaDb/vgaDb/ampEnable/basebandBwHz/biasTee in the initial config frame", async () => {
+    vi.stubGlobal("WebSocket", FakeWebSocket);
+    hoisted.connectMock.mockResolvedValue({ boardId: 1, firmwareVersion: "1.0", serialNumber: "ABC123" });
+
+    const { result } = renderHook(() => useSdr(), {
+      wrapper: ({ children }) => <SdrProvider>{children}</SdrProvider>,
+    });
+
+    let connectPromise!: Promise<void>;
+    act(() => {
+      connectPromise = result.current.connect();
+    });
+    await act(flush);
+
+    const ws = FakeWebSocket.instances[0];
+    await act(async () => {
+      ws.onopen?.();
+      await connectPromise;
+    });
+
+    // First sent frame is the JSON config frame (stringified, since IqSocket.sendConfig does
+    // JSON.stringify(cfg) before handing it to the raw socket).
+    const configFrame = JSON.parse(ws.sent[0] as string);
+    expect(configFrame).toMatchObject({
+      lnaDb: 16,
+      vgaDb: 20,
+      ampEnable: false,
+      basebandBwHz: 2_000_000, // mirrors setBasebandFilter(t.sampleRateHz)
+      biasTee: false,
+    });
+  });
+
+  it("re-sends the current RX-config fields on a setTuning() reconfig frame", async () => {
+    vi.stubGlobal("WebSocket", FakeWebSocket);
+    hoisted.connectMock.mockResolvedValue({ boardId: 1, firmwareVersion: "1.0", serialNumber: "ABC123" });
+    hoisted.isConnectedMock.mockReturnValue(true);
+
+    const { result } = renderHook(() => useSdr(), {
+      wrapper: ({ children }) => <SdrProvider>{children}</SdrProvider>,
+    });
+
+    let connectPromise!: Promise<void>;
+    act(() => {
+      connectPromise = result.current.connect();
+    });
+    await act(flush);
+    const ws = FakeWebSocket.instances[0];
+    await act(async () => {
+      ws.onopen?.();
+      await connectPromise;
+    });
+
+    await act(async () => {
+      await result.current.setTuning({ lnaGain: 32, biasTee: true });
+    });
+
+    const lastFrame = JSON.parse(ws.sent[ws.sent.length - 1] as string);
+    expect(lastFrame).toMatchObject({
+      lnaDb: 32,
+      vgaDb: 20,
+      ampEnable: false,
+      basebandBwHz: 2_000_000,
+      biasTee: true,
+    });
   });
 });
 

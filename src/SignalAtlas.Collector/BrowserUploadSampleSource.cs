@@ -36,7 +36,7 @@ public sealed class BrowserUploadSampleSource : ISampleSource
     /// Not safe for concurrent callers — single producer per connection (one WebSocket receive
     /// loop per instance).
     /// </summary>
-    public void Enqueue(ReadOnlyMemory<byte> int8Iq, long centerFreqHz, int sampleRateHz)
+    public void Enqueue(ReadOnlyMemory<byte> int8Iq, long centerFreqHz, int sampleRateHz, ReceiverConfig? receiverConfig = null)
     {
         var span = int8Iq.Span;
         int bytesPerBlock = _samplesPerBlock * 2;
@@ -66,7 +66,7 @@ public sealed class BrowserUploadSampleSource : ISampleSource
                 i[s] = (sbyte)combined[idx] / 128f;
                 q[s] = (sbyte)combined[idx + 1] / 128f;
             }
-            _channel.Writer.TryWrite(new IqBlock(centerFreqHz, sampleRateHz, i, q));
+            _channel.Writer.TryWrite(new IqBlock(centerFreqHz, sampleRateHz, i, q, receiverConfig));
         }
 
         _carry = combined.Length == consumed ? Array.Empty<byte>() : combined[consumed..];

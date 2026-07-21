@@ -23,7 +23,20 @@ public static class IqIngressEndpoint
         [property: JsonPropertyName("centerFreqHz")] long CenterFreqHz,
         [property: JsonPropertyName("sampleRateHz")] int SampleRateHz,
         [property: JsonPropertyName("samplesPerBlock")] int SamplesPerBlock,
-        [property: JsonPropertyName("collectorId")] string? CollectorId);
+        [property: JsonPropertyName("collectorId")] string? CollectorId,
+        [property: JsonPropertyName("ampEnable")] bool? AmpEnable = null,
+        [property: JsonPropertyName("lnaDb")] int? LnaDb = null,
+        [property: JsonPropertyName("vgaDb")] int? VgaDb = null,
+        [property: JsonPropertyName("basebandBwHz")] int? BasebandBwHz = null,
+        [property: JsonPropertyName("biasTee")] bool? BiasTee = null);
+
+    /// <summary>Maps the optional RX-config fields on a config frame to a <see cref="ReceiverConfig"/>
+    /// (SPEC §8.1 provenance) when the browser reports the gain stages it set on the device, else null
+    /// (older client, or a frame that only retunes center/sample rate).</summary>
+    private static ReceiverConfig? ToReceiverConfig(IqConfig c) =>
+        c.LnaDb is int lna && c.VgaDb is int vga && c.BasebandBwHz is int bw
+            ? new ReceiverConfig(c.AmpEnable ?? false, lna, vga, bw, c.BiasTee ?? false)
+            : null;
 
     public static void MapIqIngress(this WebApplication app)
     {
@@ -68,6 +81,7 @@ public static class IqIngressEndpoint
 
                 long centerHz = config.CenterFreqHz;
                 int rateHz = config.SampleRateHz;
+                ReceiverConfig? rxConfig = ToReceiverConfig(config);
 
                 while (!ct.IsCancellationRequested)
                 {
@@ -76,7 +90,7 @@ public static class IqIngressEndpoint
                         break;
                     if (msgKind == WebSocketMessageType.Binary)
                     {
-                        source.Enqueue(data, centerHz, rateHz);
+                        source.Enqueue(data, centerHz, rateHz, rxConfig);
                     }
                     else if (msgKind == WebSocketMessageType.Text)
                     {
@@ -85,6 +99,7 @@ public static class IqIngressEndpoint
                         {
                             centerHz = updated.CenterFreqHz;
                             rateHz = updated.SampleRateHz;
+                            rxConfig = ToReceiverConfig(updated);
                         }
                     }
                 }

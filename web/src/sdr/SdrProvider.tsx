@@ -89,6 +89,17 @@ function iqSocketUrl(): string {
 
 const SAMPLES_PER_BLOCK = 8192;
 
+/** The config frame plus the RX-config provenance fields (SPEC §8.1): gain stages, baseband
+ * filter width, and bias-tee, mirrored from what applyTuningToDevice sets on the HackRF. Field
+ * names MUST match IqIngressEndpoint's IqConfig JsonPropertyName casing exactly (landmine #1). */
+type IqConfigFrame = IqStreamConfig & {
+  lnaDb: number;
+  vgaDb: number;
+  ampEnable: boolean;
+  basebandBwHz: number;
+  biasTee: boolean;
+};
+
 export function SdrProvider({ children }: { children: React.ReactNode }) {
   const [state, dispatch] = useReducer(sdrReducer, INITIAL_SDR_STATE);
   const deviceRef = useRef<HackRfDevice | null>(null);
@@ -100,12 +111,19 @@ export function SdrProvider({ children }: { children: React.ReactNode }) {
   // configFrame/applyTuningToDevice/startStreaming MUST read tuning from tuningRef,
   // never from `state`, to avoid stale-closure bugs (refs are updated synchronously
   // by setTuning; `state.tuning` only updates on the next render).
-  const configFrame = (t: SdrTuning): IqStreamConfig => ({
+  // Baseband filter width mirrors applyTuningToDevice's setBasebandFilter(t.sampleRateHz) call
+  // below — same value, so the reported provenance matches what was actually set on the device.
+  const configFrame = (t: SdrTuning): IqConfigFrame => ({
     type: "config",
     centerFreqHz: t.centerFreqHz,
     sampleRateHz: t.sampleRateHz,
     samplesPerBlock: SAMPLES_PER_BLOCK,
     collectorId: "web-hackrf-1",
+    lnaDb: t.lnaGain,
+    vgaDb: t.vgaGain,
+    ampEnable: t.ampEnable,
+    basebandBwHz: t.sampleRateHz,
+    biasTee: t.biasTee,
   });
 
   const applyTuningToDevice = async (dev: HackRfDevice, t: SdrTuning) => {

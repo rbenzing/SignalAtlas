@@ -108,6 +108,31 @@ public class BrowserUploadSampleSourceTests
     }
 
     [Fact]
+    public void Enqueue_WithReceiverConfig_AttachesItToTheIqBlock()
+    {
+        var source = new BrowserUploadSampleSource(capacity: 8, samplesPerBlock: 1);
+        var rxConfig = new ReceiverConfig(AmpEnable: true, LnaDb: 16, VgaDb: 20, BasebandBwHz: 2_000_000, BiasTee: false);
+
+        source.Enqueue(new byte[] { 10, 0 }, 915_000_000, 2_000_000, rxConfig);
+        source.Complete();
+
+        var block = Assert.Single(source.Blocks());
+        Assert.Equal(rxConfig, block.ReceiverConfig);
+    }
+
+    [Fact]
+    public void Enqueue_WithoutReceiverConfig_LeavesItNull()
+    {
+        var source = new BrowserUploadSampleSource(capacity: 8, samplesPerBlock: 1);
+
+        source.Enqueue(new byte[] { 10, 0 }, 915_000_000, 2_000_000);
+        source.Complete();
+
+        var block = Assert.Single(source.Blocks());
+        Assert.Null(block.ReceiverConfig);
+    }
+
+    [Fact]
     public void ExposesNoTransmitMember()
     {
         var members = typeof(BrowserUploadSampleSource).GetMembers()
