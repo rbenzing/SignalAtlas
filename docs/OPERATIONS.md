@@ -116,7 +116,10 @@ anomaly) and live SignalR push. The protocol is a JSON `config` text frame (cent
 - **Tuning:** center frequency, sample rate, gains, and antenna-port bias-tee are set from the navbar
   popover (defaults 915 MHz, 2 MS/s, LNA 16 dB, VGA 20 dB, amp off, bias-tee off) and are sent to the
   backend as capture provenance. A previously-authorized device auto-reconnects on page load without
-  re-prompting. **Bias-tee supplies +3.3 V to the antenna port — enable it only for an external powered
+  re-prompting. **Connecting adopts the radio idle** — no capture starts until a frequency is chosen
+  from the band selector (or a coverage row); a **Stop** button ends the capture and closes the IQ
+  socket while keeping the device adopted (so re-tuning needs no re-prompt). The ADS-B 1090 MHz preset
+  captures at **8 MS/s** (needed for reliable Mode S demodulation — see the ADS-B note). **Bias-tee supplies +3.3 V to the antenna port — enable it only for an external powered
   LNA; it can damage passive antennas or other equipment.**
 - **Scope:** like other live modes, this determines protocols but **not devices** (IQ→bits
   demodulation deferred — see §9).

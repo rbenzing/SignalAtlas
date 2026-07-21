@@ -18,7 +18,8 @@ export interface CoverageStripProps {
  */
 export default function CoverageStrip({ bands }: CoverageStripProps) {
   const sdr = useSdr();
-  const streaming = sdr.status === "streaming";
+  // A HackRF is adopted in both "ready" and "streaming"; either way a row can start-or-retune.
+  const canTune = sdr.status === "streaming" || sdr.status === "ready";
   if (bands.length === 0) {
     return (
       <Typography variant="body2" color="text.secondary">
@@ -70,11 +71,11 @@ export default function CoverageStrip({ bands }: CoverageStripProps) {
                   {formatAge(b.ageSeconds)}
                 </Typography>
               </Box>
-              {streaming && preset && (
+              {canTune && preset && (
                 <Button
                   size="small"
                   variant="outlined"
-                  onClick={() => void sdr.setTuning({ centerFreqHz: preset.centerFreqHz, sampleRateHz: preset.sampleRateHz })}
+                  onClick={() => void sdr.tune(preset.centerFreqHz, preset.sampleRateHz)}
                 >
                   Tune
                 </Button>

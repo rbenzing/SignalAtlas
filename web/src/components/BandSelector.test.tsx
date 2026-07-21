@@ -4,18 +4,26 @@ import userEvent from "@testing-library/user-event";
 import BandSelector from "./BandSelector";
 import * as sdr from "../sdr/SdrProvider";
 
-function mockSdr(centerFreqHz: number) {
-  const setTuning = vi.fn().mockResolvedValue(undefined);
+// activeFreqHz drives the label/checkmark now (the frequency actually being captured), not
+// tuning.centerFreqHz. Pass null to model the "ready" (adopted, not scanning) state.
+function mockSdr(activeFreqHz: number | null) {
+  const tune = vi.fn().mockResolvedValue(undefined);
   vi.spyOn(sdr, "useSdr").mockReturnValue({
     ...sdr.INITIAL_SDR_STATE,
-    status: "streaming",
+    status: activeFreqHz === null ? "ready" : "streaming",
     serial: "ABC123",
-    tuning: { ...sdr.INITIAL_SDR_STATE.tuning, centerFreqHz },
+    activeFreqHz,
+    tuning: {
+      ...sdr.INITIAL_SDR_STATE.tuning,
+      centerFreqHz: activeFreqHz ?? sdr.INITIAL_SDR_STATE.tuning.centerFreqHz,
+    },
     connect: vi.fn(),
     disconnect: vi.fn(),
-    setTuning,
+    tune,
+    stop: vi.fn(),
+    setTuning: vi.fn(),
   });
-  return setTuning;
+  return tune;
 }
 
 describe("BandSelector", () => {
@@ -33,20 +41,26 @@ describe("BandSelector", () => {
     expect(screen.getByRole("button", { name: /Custom/ })).toBeInTheDocument();
   });
 
+  it("labels the trigger 'Select frequency' when adopted but not scanning (ready)", () => {
+    mockSdr(null);
+    render(<BandSelector />);
+    expect(screen.getByRole("button", { name: /Select frequency/ })).toBeInTheDocument();
+  });
+
   it("tunes to a channel's center and rate when its menu item is clicked", async () => {
-    const setTuning = mockSdr(2_437_000_000);
+    const tune = mockSdr(2_437_000_000);
     render(<BandSelector />);
     await userEvent.click(screen.getByRole("button", { name: /Wi-Fi/ }));
     await userEvent.click(screen.getByRole("menuitem", { name: /Wi-Fi ch 1 - 2412 MHz/ }));
-    expect(setTuning).toHaveBeenCalledWith({ centerFreqHz: 2_412_000_000, sampleRateHz: 20_000_000 });
+    expect(tune).toHaveBeenCalledWith(2_412_000_000, 20_000_000);
   });
 
   it("tunes to the band center when a band header item is clicked", async () => {
-    const setTuning = mockSdr(915_000_000);
+    const tune = mockSdr(915_000_000);
     render(<BandSelector />);
     await userEvent.click(screen.getByRole("button", { name: /ISM 902-928/ }));
     await userEvent.click(screen.getByRole("menuitem", { name: /ADS-B 1090 MHz/ }));
-    expect(setTuning).toHaveBeenCalledWith({ centerFreqHz: 1_090_000_000, sampleRateHz: 2_000_000 });
+    expect(tune).toHaveBeenCalledWith(1_090_000_000, 8_000_000);
   });
 
   it("marks the menu-trigger button with menu a11y attributes that toggle on open", async () => {

@@ -3,13 +3,14 @@ import { act, renderHook } from "@testing-library/react";
 import { SdrProvider, useSdr } from "./SdrProvider";
 
 // The mocked `./hackrf` module delegates every method to a `vi.fn()` held in `hoisted` so
-// each test can configure connect()/adopt()/startRx() behavior independently (vi.mock
+// each test can configure connect()/adopt()/startRx()/stop() behavior independently (vi.mock
 // factories are hoisted above imports, so the mock fns must come from vi.hoisted too).
 const hoisted = vi.hoisted(() => ({
   connectMock: vi.fn(),
   adoptMock: vi.fn(),
   disconnectMock: vi.fn(),
   startRxMock: vi.fn(),
+  stopMock: vi.fn(),
   isConnectedMock: vi.fn(),
 }));
 
@@ -28,6 +29,9 @@ vi.mock("./hackrf", async () => ({
     }
     startRx(onData: unknown, onEnd: unknown) {
       return hoisted.startRxMock(onData, onEnd);
+    }
+    stop() {
+      return hoisted.stopMock();
     }
     setSampleRate() {
       return Promise.resolve();
@@ -59,8 +63,8 @@ vi.mock("./hackrf", async () => ({
 
 /** Minimal fake WebSocket — jsdom does not provide a real one. Captures every instance so
  * tests can reach in and drive onopen/onclose/onerror by hand. close() mirrors a real socket
- * by invoking onclose synchronously, which is what makes the Fix 2 "intentional disconnect
- * must stay silent" test meaningful (teardown() must null the handler before calling close()). */
+ * by invoking onclose synchronously, which is what makes the "intentional stop/disconnect must
+ * stay silent" tests meaningful (teardown/stopStreaming must null the handler before close()). */
 class FakeWebSocket {
   static instances: FakeWebSocket[] = [];
   binaryType = "";
@@ -86,12 +90,44 @@ class FakeWebSocket {
 
 const flush = () => new Promise<void>((resolve) => setTimeout(resolve, 0));
 
+/** connect() → "ready" (device adopted, NOT streaming — no socket yet). */
+async function connectToReady(result: { current: ReturnType<typeof useSdr> }) {
+  let p!: Promise<void>;
+  act(() => {
+    p = result.current.connect();
+  });
+  await act(async () => {
+    await p;
+  });
+}
+
+/** From "ready", tune() a frequency to open the socket + start RX, then drive onopen → "streaming". */
+async function reachStreaming(
+  result: { current: ReturnType<typeof useSdr> },
+  centerFreqHz = 915_000_000,
+  sampleRateHz = 2_000_000,
+): Promise<FakeWebSocket> {
+  await connectToReady(result);
+  let tp!: Promise<void>;
+  act(() => {
+    tp = result.current.tune(centerFreqHz, sampleRateHz);
+  });
+  await act(flush);
+  const ws = FakeWebSocket.instances[FakeWebSocket.instances.length - 1];
+  await act(async () => {
+    ws.onopen?.();
+    await tp;
+  });
+  return ws;
+}
+
 beforeEach(() => {
   FakeWebSocket.instances.length = 0;
   hoisted.connectMock.mockReset().mockRejectedValue(new Error("No HackRF selected."));
   hoisted.adoptMock.mockReset();
   hoisted.disconnectMock.mockReset().mockResolvedValue(undefined);
   hoisted.startRxMock.mockReset().mockResolvedValue(undefined);
+  hoisted.stopMock.mockReset().mockResolvedValue(undefined);
   hoisted.isConnectedMock.mockReset().mockReturnValue(false);
 });
 
@@ -115,6 +151,97 @@ describe("SdrProvider connect() error handling", () => {
   });
 });
 
+describe("SdrProvider connect() resolves to ready, not streaming", () => {
+  it("adopts the device and idles (no socket, no frequency) until a frequency is tuned", async () => {
+    vi.stubGlobal("WebSocket", FakeWebSocket);
+    hoisted.connectMock.mockResolvedValue({ boardId: 1, firmwareVersion: "1.0", serialNumber: "RDY1" });
+
+    const { result } = renderHook(() => useSdr(), {
+      wrapper: ({ children }) => <SdrProvider>{children}</SdrProvider>,
+    });
+
+    await connectToReady(result);
+
+    expect(result.current.status).toBe("ready");
+    expect(result.current.serial).toBe("RDY1");
+    expect(result.current.activeFreqHz).toBeNull();
+    // Connecting alone must NOT open an IQ socket or start RX — the radio is not scanning.
+    expect(FakeWebSocket.instances.length).toBe(0);
+    expect(hoisted.startRxMock).not.toHaveBeenCalled();
+  });
+
+  it("starts streaming when a frequency is tuned from ready", async () => {
+    vi.stubGlobal("WebSocket", FakeWebSocket);
+    hoisted.connectMock.mockResolvedValue({ boardId: 1, firmwareVersion: "1.0", serialNumber: "RDY1" });
+
+    const { result } = renderHook(() => useSdr(), {
+      wrapper: ({ children }) => <SdrProvider>{children}</SdrProvider>,
+    });
+
+    await reachStreaming(result, 1_090_000_000, 8_000_000);
+
+    expect(result.current.status).toBe("streaming");
+    expect(result.current.activeFreqHz).toBe(1_090_000_000);
+    expect(hoisted.startRxMock).toHaveBeenCalled();
+    expect(FakeWebSocket.instances.length).toBe(1);
+  });
+});
+
+describe("SdrProvider Stop keeps the device but ends the stream", () => {
+  it("stops RX + closes the socket, stays adopted (ready), clears the active frequency", async () => {
+    vi.stubGlobal("WebSocket", FakeWebSocket);
+    hoisted.connectMock.mockResolvedValue({ boardId: 1, firmwareVersion: "1.0", serialNumber: "STP1" });
+
+    const { result } = renderHook(() => useSdr(), {
+      wrapper: ({ children }) => <SdrProvider>{children}</SdrProvider>,
+    });
+
+    await reachStreaming(result);
+    expect(result.current.status).toBe("streaming");
+
+    await act(async () => {
+      await result.current.stop();
+    });
+
+    expect(result.current.status).toBe("ready");
+    expect(result.current.activeFreqHz).toBeNull();
+    expect(result.current.serial).toBe("STP1"); // device identity retained
+    expect(hoisted.stopMock).toHaveBeenCalled(); // RX halted...
+    expect(hoisted.disconnectMock).not.toHaveBeenCalled(); // ...but USB device NOT released
+    expect(result.current.error).toBeNull();
+  });
+
+  it("can restart streaming after Stop without re-prompting (device still adopted)", async () => {
+    vi.stubGlobal("WebSocket", FakeWebSocket);
+    hoisted.connectMock.mockResolvedValue({ boardId: 1, firmwareVersion: "1.0", serialNumber: "STP2" });
+
+    const { result } = renderHook(() => useSdr(), {
+      wrapper: ({ children }) => <SdrProvider>{children}</SdrProvider>,
+    });
+
+    await reachStreaming(result);
+    await act(async () => {
+      await result.current.stop();
+    });
+
+    // Tune again → new stream, WITHOUT another connect()/chooser prompt.
+    let tp!: Promise<void>;
+    act(() => {
+      tp = result.current.tune(162_400_000, 2_000_000);
+    });
+    await act(flush);
+    const ws = FakeWebSocket.instances[FakeWebSocket.instances.length - 1];
+    await act(async () => {
+      ws.onopen?.();
+      await tp;
+    });
+
+    expect(result.current.status).toBe("streaming");
+    expect(result.current.activeFreqHz).toBe(162_400_000);
+    expect(hoisted.connectMock).toHaveBeenCalledTimes(1); // only the original connect
+  });
+});
+
 describe("SdrProvider config frame RX-config provenance", () => {
   it("sends lnaDb/vgaDb/ampEnable/basebandBwHz/biasTee in the initial config frame", async () => {
     vi.stubGlobal("WebSocket", FakeWebSocket);
@@ -124,17 +251,7 @@ describe("SdrProvider config frame RX-config provenance", () => {
       wrapper: ({ children }) => <SdrProvider>{children}</SdrProvider>,
     });
 
-    let connectPromise!: Promise<void>;
-    act(() => {
-      connectPromise = result.current.connect();
-    });
-    await act(flush);
-
-    const ws = FakeWebSocket.instances[0];
-    await act(async () => {
-      ws.onopen?.();
-      await connectPromise;
-    });
+    const ws = await reachStreaming(result);
 
     // First sent frame is the JSON config frame (stringified, since IqSocket.sendConfig does
     // JSON.stringify(cfg) before handing it to the raw socket).
@@ -157,16 +274,7 @@ describe("SdrProvider config frame RX-config provenance", () => {
       wrapper: ({ children }) => <SdrProvider>{children}</SdrProvider>,
     });
 
-    let connectPromise!: Promise<void>;
-    act(() => {
-      connectPromise = result.current.connect();
-    });
-    await act(flush);
-    const ws = FakeWebSocket.instances[0];
-    await act(async () => {
-      ws.onopen?.();
-      await connectPromise;
-    });
+    const ws = await reachStreaming(result);
 
     await act(async () => {
       await result.current.setTuning({ lnaGain: 32, biasTee: true });
@@ -201,19 +309,7 @@ describe("SdrProvider mid-stream error handling (Fix 1)", () => {
       wrapper: ({ children }) => <SdrProvider>{children}</SdrProvider>,
     });
 
-    let connectPromise!: Promise<void>;
-    act(() => {
-      connectPromise = result.current.connect();
-    });
-    await act(flush);
-
-    const ws = FakeWebSocket.instances[0];
-    expect(ws).toBeDefined();
-
-    await act(async () => {
-      ws.onopen?.();
-      await connectPromise;
-    });
+    await reachStreaming(result);
     expect(result.current.status).toBe("streaming");
 
     // Trigger the mid-stream failure deterministically and let its `await teardown()` resolve.
@@ -229,20 +325,6 @@ describe("SdrProvider mid-stream error handling (Fix 1)", () => {
 });
 
 describe("SdrProvider unexpected socket close handling (Fix 2)", () => {
-  async function connectAndReachStreaming(result: { current: ReturnType<typeof useSdr> }) {
-    let connectPromise!: Promise<void>;
-    act(() => {
-      connectPromise = result.current.connect();
-    });
-    await act(flush);
-    const ws = FakeWebSocket.instances[0];
-    await act(async () => {
-      ws.onopen?.();
-      await connectPromise;
-    });
-    return ws;
-  }
-
   it("surfaces an error when the IQ socket closes unexpectedly after streaming starts", async () => {
     vi.stubGlobal("WebSocket", FakeWebSocket);
     hoisted.connectMock.mockResolvedValue({ boardId: 1, firmwareVersion: "1.0", serialNumber: "ABC123" });
@@ -251,7 +333,7 @@ describe("SdrProvider unexpected socket close handling (Fix 2)", () => {
       wrapper: ({ children }) => <SdrProvider>{children}</SdrProvider>,
     });
 
-    const ws = await connectAndReachStreaming(result);
+    const ws = await reachStreaming(result);
     expect(result.current.status).toBe("streaming");
 
     // Simulate the browser firing an unexpected close event (backend restart / network
@@ -272,7 +354,7 @@ describe("SdrProvider unexpected socket close handling (Fix 2)", () => {
       wrapper: ({ children }) => <SdrProvider>{children}</SdrProvider>,
     });
 
-    await connectAndReachStreaming(result);
+    await reachStreaming(result);
     expect(result.current.status).toBe("streaming");
 
     await act(async () => {
@@ -287,7 +369,7 @@ describe("SdrProvider unexpected socket close handling (Fix 2)", () => {
 });
 
 describe("SdrProvider auto-reconnect on mount (Fix 3)", () => {
-  it("silently adopts a previously-authorized HackRF without prompting the chooser", async () => {
+  it("silently adopts a previously-authorized HackRF to ready (no prompt, no auto-scan)", async () => {
     vi.stubGlobal("WebSocket", FakeWebSocket);
     const getDevicesMock = vi.fn().mockResolvedValue([{ vendorId: 0x1d50, productId: 0x6089 }]);
     const requestDeviceMock = vi.fn();
@@ -301,22 +383,18 @@ describe("SdrProvider auto-reconnect on mount (Fix 3)", () => {
       wrapper: ({ children }) => <SdrProvider>{children}</SdrProvider>,
     });
 
-    // Let the mount effect run: getDevices() -> adopt() -> startStreaming() -> new WebSocket().
+    // Let the mount effect run: getDevices() -> adopt() -> ready (NOT streaming).
     await act(flush);
 
-    const ws = FakeWebSocket.instances[0];
-    expect(ws).toBeDefined();
-
-    await act(async () => {
-      ws.onopen?.();
-      await flush();
-    });
-
-    expect(result.current.status).toBe("streaming");
+    expect(result.current.status).toBe("ready");
     expect(result.current.serial).toBe("AUTO123");
+    expect(result.current.activeFreqHz).toBeNull();
     expect(hoisted.adoptMock).toHaveBeenCalledWith({ vendorId: 0x1d50, productId: 0x6089 });
     expect(requestDeviceMock).not.toHaveBeenCalled();
     expect(hoisted.connectMock).not.toHaveBeenCalled();
+    // No auto-scan: no socket opened, RX never started until a frequency is selected.
+    expect(FakeWebSocket.instances.length).toBe(0);
+    expect(hoisted.startRxMock).not.toHaveBeenCalled();
   });
 
   it("stays idle when no previously-authorized device is returned", async () => {

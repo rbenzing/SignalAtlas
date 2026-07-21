@@ -10,17 +10,18 @@ import { useSdr } from "../sdr/SdrProvider";
 import { bandPresets, activeBand } from "../sdr/bandPresets";
 
 // Navbar "frequency changer": a dropdown of bands, each with its channels indented
-// beneath a band-center header. Every item retunes via the existing setTuning — the
-// active label/checkmark derive purely from the current tuning center (no extra state).
+// beneath a band-center header. Selecting an item is what STARTS capture (from "ready") or
+// retunes an active stream — via sdr.tune. The active label/checkmark derive from the
+// frequency actually being captured (activeFreqHz): null → nothing selected ("Select frequency").
 export default function BandSelector() {
   const sdr = useSdr();
   const [anchor, setAnchor] = useState<HTMLElement | null>(null);
   const open = Boolean(anchor);
-  const center = sdr.tuning.centerFreqHz;
-  const current = activeBand(center);
+  const center = sdr.activeFreqHz;
+  const current = center === null ? null : activeBand(center);
 
   const tune = (centerFreqHz: number, sampleRateHz: number) => {
-    void sdr.setTuning({ centerFreqHz, sampleRateHz });
+    void sdr.tune(centerFreqHz, sampleRateHz);
     setAnchor(null);
   };
 
@@ -36,7 +37,7 @@ export default function BandSelector() {
         aria-expanded={open}
         aria-controls={open ? "band-selector-menu" : undefined}
       >
-        {current?.label ?? "Custom"}
+        {current?.label ?? (center === null ? "Select frequency" : "Custom")}
       </Button>
       <Menu id="band-selector-menu" anchorEl={anchor} open={open} onClose={() => setAnchor(null)}>
         {bandPresets.flatMap((band) => [

@@ -16,15 +16,17 @@ const WIFI: SpectrumCoverageBand = {
 };
 
 function mockSdr(status: sdr.SdrStatus) {
-  const setTuning = vi.fn().mockResolvedValue(undefined);
+  const tune = vi.fn().mockResolvedValue(undefined);
   vi.spyOn(sdr, "useSdr").mockReturnValue({
     ...sdr.INITIAL_SDR_STATE,
     status,
     connect: vi.fn(),
     disconnect: vi.fn(),
-    setTuning,
+    tune,
+    stop: vi.fn(),
+    setTuning: vi.fn(),
   });
-  return setTuning;
+  return tune;
 }
 
 describe("CoverageStrip tune actions", () => {
@@ -32,6 +34,12 @@ describe("CoverageStrip tune actions", () => {
 
   it("shows a Tune action for a band with a preset while streaming", () => {
     mockSdr("streaming");
+    render(<CoverageStrip bands={[WIFI]} />);
+    expect(screen.getByRole("button", { name: /tune/i })).toBeInTheDocument();
+  });
+
+  it("shows a Tune action when ready (adopted, not yet scanning)", () => {
+    mockSdr("ready");
     render(<CoverageStrip bands={[WIFI]} />);
     expect(screen.getByRole("button", { name: /tune/i })).toBeInTheDocument();
   });
@@ -49,9 +57,9 @@ describe("CoverageStrip tune actions", () => {
   });
 
   it("tunes to the band center when Tune is clicked", async () => {
-    const setTuning = mockSdr("streaming");
+    const tune = mockSdr("streaming");
     render(<CoverageStrip bands={[WIFI]} />);
     await userEvent.click(screen.getByRole("button", { name: /tune/i }));
-    expect(setTuning).toHaveBeenCalledWith({ centerFreqHz: 2_442_000_000, sampleRateHz: 20_000_000 });
+    expect(tune).toHaveBeenCalledWith(2_442_000_000, 20_000_000);
   });
 });

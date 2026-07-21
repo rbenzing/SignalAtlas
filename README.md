@@ -75,7 +75,9 @@ classify → correlate → anomaly pipeline and pushes the live waterfall/occupa
 SignalR. The radio is **receive-only** (no transmit path exists) and raw IQ never leaves
 the edge — only spectra/features are produced. Tune center freq / sample rate / gains /
 bias-tee from the navbar popover (the RX config is recorded as capture provenance); a
-previously-authorized device reconnects on load without re-prompting.
+previously-authorized device reconnects on load without re-prompting. Connecting adopts the
+radio **idle** — it does not scan until you pick a frequency from the band selector — and a
+**Stop** button halts scanning while keeping the device connected (ready for a new frequency).
 
 Requirements: a WebUSB browser (**Chrome or Edge**) and the API running (so the Vite proxy
 reaches `/ingest/iq` on 5285). On **Windows**, install the WinUSB driver for the HackRF with

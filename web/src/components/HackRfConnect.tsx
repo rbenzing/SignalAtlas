@@ -42,7 +42,9 @@ export default function HackRfConnect() {
     return <Chip icon={<CircularProgress size={14} />} label="Connecting…" size="small" />;
   }
 
-  // streaming
+  // ready (adopted, not scanning) or streaming. Both share the device chip, band selector, tuning
+  // popover, and Disconnect; streaming additionally shows the live scan chip and a Stop button.
+  const streaming = sdr.status === "streaming";
   const scanning = spectrumFps > 0;
   const centerMhz = (sdr.tuning.centerFreqHz / 1e6).toFixed(3);
   return (
@@ -54,24 +56,41 @@ export default function HackRfConnect() {
         icon={<SettingsInputAntennaIcon />}
         label={`HackRF ${sdr.serial ?? ""}${sdr.drops > 0 ? ` · ${sdr.drops} drops` : ""}`}
       />
-      <Tooltip
-        title={scanning ? `Receiving live IQ at ${centerMhz} MHz` : "Connected but no IQ frames arriving yet"}
-        describeChild
-      >
-        <Chip
-          color={scanning ? "success" : "warning"}
-          variant="filled"
-          size="small"
-          icon={<GraphicEqIcon />}
-          label={scanning ? `Scanning · ${spectrumFps} fps · ${centerMhz} MHz` : "Scanning · no data"}
-        />
-      </Tooltip>
+      {streaming ? (
+        <Tooltip
+          title={scanning ? `Receiving live IQ at ${centerMhz} MHz` : "Connected but no IQ frames arriving yet"}
+          describeChild
+        >
+          <Chip
+            color={scanning ? "success" : "warning"}
+            variant="filled"
+            size="small"
+            icon={<GraphicEqIcon />}
+            label={scanning ? `Scanning · ${spectrumFps} fps · ${centerMhz} MHz` : "Scanning · no data"}
+          />
+        </Tooltip>
+      ) : (
+        <Tooltip title="Idle — pick a frequency from the band selector to start scanning" describeChild>
+          <Chip
+            color="default"
+            variant="outlined"
+            size="small"
+            icon={<GraphicEqIcon />}
+            label="Idle · select a frequency"
+          />
+        </Tooltip>
+      )}
       <BandSelector />
       <Tooltip title="Tuning">
         <IconButton size="small" onClick={(e) => setAnchor(e.currentTarget)} aria-label="HackRF tuning">
           <TuneIcon fontSize="small" />
         </IconButton>
       </Tooltip>
+      {streaming && (
+        <Button size="small" color="warning" variant="outlined" onClick={() => void sdr.stop()}>
+          Stop
+        </Button>
+      )}
       <Button size="small" color="inherit" onClick={() => void sdr.disconnect()}>
         Disconnect
       </Button>

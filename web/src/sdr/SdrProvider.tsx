@@ -2,7 +2,10 @@ import { createContext, useCallback, useContext, useEffect, useReducer, useRef }
 import { HackRfDevice, type HackRfDeviceInfo, computeBasebandFilterBw } from "./hackrf";
 import { IqSocket, type IqStreamConfig } from "./iqSocket";
 
-export type SdrStatus = "idle" | "requesting" | "streaming" | "error";
+// "ready" = a HackRF is adopted and open but NOT streaming (transceiver OFF, no IQ socket, no
+// frequency selected). Connecting resolves here — the radio does not scan until a frequency is
+// chosen from the band selector. "streaming" is the only state that actually captures IQ.
+export type SdrStatus = "idle" | "requesting" | "ready" | "streaming" | "error";
 
 export interface SdrTuning {
   centerFreqHz: number;
@@ -29,6 +32,9 @@ export interface SdrState {
   firmware: string | null;
   error: string | null;
   tuning: SdrTuning;
+  /** Center frequency currently being captured, or null when not streaming (idle/ready/error).
+   * Drives the band selector's active-selection/checkmark — null → nothing selected. */
+  activeFreqHz: number | null;
   drops: number;
 }
 
@@ -38,12 +44,17 @@ export const INITIAL_SDR_STATE: SdrState = {
   firmware: null,
   error: null,
   tuning: DEFAULT_TUNING,
+  activeFreqHz: null,
   drops: 0,
 };
 
 export type SdrAction =
   | { type: "requesting" }
+  // "connected" = adopted & ready (NOT streaming): a frequency must still be selected to scan.
   | { type: "connected"; info: HackRfDeviceInfo }
+  | { type: "streaming"; centerFreqHz: number }
+  // "stopped" = Stop pressed: streaming halted, device stays adopted → back to ready.
+  | { type: "stopped" }
   | { type: "error"; message: string }
   | { type: "disconnected" }
   | { type: "tuning"; patch: Partial<SdrTuning> }
@@ -56,11 +67,17 @@ export function sdrReducer(state: SdrState, action: SdrAction): SdrState {
     case "connected":
       return {
         ...state,
-        status: "streaming",
+        status: "ready",
         serial: action.info.serialNumber,
         firmware: action.info.firmwareVersion,
         error: null,
+        activeFreqHz: null,
       };
+    case "streaming":
+      return { ...state, status: "streaming", error: null, activeFreqHz: action.centerFreqHz };
+    case "stopped":
+      // Keep serial/firmware/tuning; only drop the active capture. Device remains adopted.
+      return { ...state, status: "ready", activeFreqHz: null };
     case "error":
       return { ...state, status: "error", error: action.message };
     case "disconnected":
@@ -77,6 +94,10 @@ export function sdrReducer(state: SdrState, action: SdrAction): SdrState {
 type SdrContextValue = SdrState & {
   connect: () => Promise<void>;
   disconnect: () => Promise<void>;
+  /** Start capturing at the given frequency (from "ready"), or retune an active stream in place. */
+  tune: (centerFreqHz: number, sampleRateHz: number) => Promise<void>;
+  /** Stop capturing but keep the device adopted (→ "ready"); clears the selected frequency. */
+  stop: () => Promise<void>;
   setTuning: (patch: Partial<SdrTuning>) => Promise<void>;
 };
 
@@ -168,7 +189,24 @@ export function SdrProvider({ children }: { children: React.ReactNode }) {
     dispatch({ type: "disconnected" });
   }, [teardown]);
 
-  const startStreaming = async (info: HackRfDeviceInfo, dev: HackRfDevice) => {
+  // Soft stop: halt RX and close the IQ socket but KEEP the device adopted/open (dev.stop() sets
+  // the transceiver OFF without releasing the USB interface), so a subsequent tune() restarts
+  // without re-prompting the chooser. Detaches the socket handlers before close() so the
+  // unexpected-close path never fires for this intentional stop. Leaves deviceRef + tuningRef intact.
+  const stopStreaming = useCallback(async () => {
+    try { await deviceRef.current?.stop(); } catch { /* ignore */ }
+    const ws = wsRef.current;
+    if (ws) {
+      ws.onopen = null;
+      ws.onclose = null;
+      ws.onerror = null;
+      try { ws.close(); } catch { /* ignore */ }
+    }
+    wsRef.current = null;
+    iqRef.current = null;
+  }, []);
+
+  const startStreaming = async (dev: HackRfDevice) => {
     const t = tuningRef.current;
     await applyTuningToDevice(dev, t);
 
@@ -222,7 +260,7 @@ export function SdrProvider({ children }: { children: React.ReactNode }) {
         dispatch({ type: "error", message: err?.message ?? "HackRF stream ended." });
       },
     );
-    dispatch({ type: "connected", info });
+    dispatch({ type: "streaming", centerFreqHz: t.centerFreqHz });
   };
 
   // One-click silent reconnect (Spec §4.3/§9): if the browser already granted USB access to
@@ -256,7 +294,8 @@ export function SdrProvider({ children }: { children: React.ReactNode }) {
           await teardown();
           return;
         }
-        await startStreaming(info, dev);
+        // Adopt only — do NOT auto-scan. The operator selects a frequency to begin capture.
+        dispatch({ type: "connected", info });
       } catch (e) {
         if (!cancelled) {
           await teardown();
@@ -276,13 +315,45 @@ export function SdrProvider({ children }: { children: React.ReactNode }) {
       const dev = new HackRfDevice();
       deviceRef.current = dev;
       const info = await dev.connect();
-      await startStreaming(info, dev);
+      // Adopt only — do NOT auto-scan. The operator selects a frequency to begin capture.
+      dispatch({ type: "connected", info });
     } catch (e) {
       await teardown();
       dispatch({ type: "error", message: (e as Error).message });
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [teardown]);
+
+  // Begin capture at a frequency (from "ready"), or retune an active stream in place. This is the
+  // ONLY way to start scanning — connecting alone never streams.
+  const tune = useCallback(async (centerFreqHz: number, sampleRateHz: number) => {
+    const next = { ...tuningRef.current, centerFreqHz, sampleRateHz };
+    tuningRef.current = next;
+    dispatch({ type: "tuning", patch: { centerFreqHz, sampleRateHz } });
+    const dev = deviceRef.current;
+    if (!dev) return;
+    try {
+      if (iqRef.current) {
+        // Already streaming → retune the live device + resend provenance; move the active marker.
+        await applyTuningToDevice(dev, next);
+        iqRef.current.sendConfig(configFrame(next));
+        dispatch({ type: "streaming", centerFreqHz });
+      } else {
+        // Ready → open the socket and start RX (startStreaming dispatches "streaming").
+        await startStreaming(dev);
+      }
+    } catch (e) {
+      await stopStreaming();
+      dispatch({ type: "error", message: (e as Error).message });
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [stopStreaming]);
+
+  // Stop scanning but keep the device adopted (→ "ready"); clears the selected frequency.
+  const stop = useCallback(async () => {
+    await stopStreaming();
+    dispatch({ type: "stopped" });
+  }, [stopStreaming]);
 
   const setTuning = useCallback(async (patch: Partial<SdrTuning>) => {
     const next = { ...tuningRef.current, ...patch };
@@ -296,7 +367,7 @@ export function SdrProvider({ children }: { children: React.ReactNode }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  const value: SdrContextValue = { ...state, connect, disconnect, setTuning };
+  const value: SdrContextValue = { ...state, connect, disconnect, tune, stop, setTuning };
   return <SdrContext.Provider value={value}>{children}</SdrContext.Provider>;
 }
 
