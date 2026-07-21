@@ -125,6 +125,67 @@ public class HardeningEndpointTests(WebApplicationFactory<Program> factory)
         Assert.Equal(2, doc.RootElement.GetProperty("payload").GetArrayLength());
     }
 
+    // Pagination — more rows than the limit yields a non-null nextCursor alongside the still-capped
+    // payload array; feeding that cursor back walks to the next page, and the final page's
+    // nextCursor is null (round-trips through Pagination.EncodeCursor/TryDecodeCursor).
+    [Fact]
+    public async Task MoreRowsThanLimit_EmitsNextCursor_AndCursorWalksToNextPage()
+    {
+        var client = _factory.WithWebHostBuilder(b =>
+            b.ConfigureServices(s => s.AddSingleton<ISignalRepository>(new MultiSignalRepository(5))))
+            .CreateClient();
+
+        // Page 1: ids 1,2 + a non-null nextCursor.
+        using var page1 = JsonDocument.Parse(
+            await (await client.GetAsync("/api/v1/signals?limit=2")).Content.ReadAsStringAsync());
+        var payload1 = page1.RootElement.GetProperty("payload");
+        Assert.Equal(2, payload1.GetArrayLength());
+        Assert.Equal(1, payload1[0].GetProperty("id").GetInt32());
+        Assert.Equal(2, payload1[1].GetProperty("id").GetInt32());
+        var cursor1 = page1.RootElement.GetProperty("nextCursor").GetString();
+        Assert.False(string.IsNullOrEmpty(cursor1));
+
+        // Page 2: feeding cursor1 back walks to ids 3,4 (a different first element) + another cursor.
+        using var page2 = JsonDocument.Parse(
+            await (await client.GetAsync($"/api/v1/signals?limit=2&cursor={Uri.EscapeDataString(cursor1!)}"))
+                .Content.ReadAsStringAsync());
+        var payload2 = page2.RootElement.GetProperty("payload");
+        Assert.Equal(2, payload2.GetArrayLength());
+        Assert.Equal(3, payload2[0].GetProperty("id").GetInt32());
+        Assert.Equal(4, payload2[1].GetProperty("id").GetInt32());
+        var cursor2 = page2.RootElement.GetProperty("nextCursor").GetString();
+        Assert.False(string.IsNullOrEmpty(cursor2));
+        Assert.NotEqual(cursor1, cursor2);
+
+        // Page 3 (final): id 5 only, and nextCursor is null — no more pages.
+        using var page3 = JsonDocument.Parse(
+            await (await client.GetAsync($"/api/v1/signals?limit=2&cursor={Uri.EscapeDataString(cursor2!)}"))
+                .Content.ReadAsStringAsync());
+        var payload3 = page3.RootElement.GetProperty("payload");
+        Assert.Equal(1, payload3.GetArrayLength());
+        Assert.Equal(5, payload3[0].GetProperty("id").GetInt32());
+        Assert.Equal(JsonValueKind.Null, page3.RootElement.GetProperty("nextCursor").ValueKind);
+    }
+
+    // A non-list endpoint (e.g. /summary) still serializes fine with the new optional envelope field:
+    // nextCursor is null and the payload shape is unchanged.
+    [Fact]
+    public async Task NonListEndpoint_SerializesWithNullNextCursor_AndUnchangedPayload()
+    {
+        var client = _factory.CreateClient();
+        using var doc = JsonDocument.Parse(
+            await (await client.GetAsync("/api/v1/summary")).Content.ReadAsStringAsync());
+
+        var root = doc.RootElement;
+        Assert.True(root.TryGetProperty("nextCursor", out var nextCursor));
+        Assert.Equal(JsonValueKind.Null, nextCursor.ValueKind);
+
+        var payload = root.GetProperty("payload");
+        Assert.True(payload.TryGetProperty("signalCount", out _));
+        Assert.True(payload.TryGetProperty("deviceCount", out _));
+        Assert.True(payload.TryGetProperty("alertCount", out _));
+    }
+
     // NFR-S2 — a /devices read writes an audit entry; probes do not.
     [Fact]
     public async Task DevicesRead_WritesAuditEntry()

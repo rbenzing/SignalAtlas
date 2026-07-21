@@ -6,6 +6,8 @@ export interface ApiEnvelope<T> {
   schemaVersion: string;
   correlationId: string;
   payload: T;
+  /** Opaque forward-pagination cursor for list endpoints; null when there is no next page. */
+  nextCursor?: string | null;
 }
 
 export interface EvidenceItem {
@@ -109,6 +111,25 @@ export async function getEnvelope<T>(path: string): Promise<T> {
   if (!resp.ok) throw new Error(`GET ${path} failed: ${resp.status}`);
   const env = (await resp.json()) as ApiEnvelope<T>;
   return env.payload;
+}
+
+/**
+ * Fetch a paginated list endpoint and return both the page of items and the cursor for the next
+ * page (null when there isn't one). Unlike `getEnvelope`, this does NOT unwrap-and-discard
+ * `nextCursor` — it's the consumable helper for cursor-based paging (see `Pagination.EncodeCursor`
+ * / `TryDecodeCursor` on the API side). Does not wire into any view; that's a separate follow-up.
+ */
+export async function getPaged<T>(
+  path: string,
+  cursor?: string,
+): Promise<{ items: T; nextCursor: string | null }> {
+  const url = cursor
+    ? `${BASE}/api/v1${path}?cursor=${encodeURIComponent(cursor)}`
+    : `${BASE}/api/v1${path}`;
+  const resp = await fetch(url);
+  if (!resp.ok) throw new Error(`GET ${path} failed: ${resp.status}`);
+  const env = (await resp.json()) as ApiEnvelope<T>;
+  return { items: env.payload, nextCursor: env.nextCursor ?? null };
 }
 
 export const getSignals = () => getEnvelope<Signal[]>("/signals");

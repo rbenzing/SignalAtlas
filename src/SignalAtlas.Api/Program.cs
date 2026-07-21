@@ -207,11 +207,15 @@ api.MapGet("/signals", IResult (ISignalRepository repo, HttpContext ctx) =>
     if (!Pagination.TryResolve(ctx, out var page, out var error))
         return error!;
 
-    var items = repo.GetSignals(page.Take).Skip(page.Offset).Take(page.Limit).ToList();
+    var raw = repo.GetSignals(page.TakePeek).Skip(page.Offset).Take(page.Limit + 1).ToList();
+    var hasMore = raw.Count > page.Limit;
+    var items = hasMore ? raw.Take(page.Limit).ToList() : raw;
+    string? next = hasMore ? Pagination.EncodeCursor(page.Offset + page.Limit) : null;
     return Results.Ok(new ApiEnvelope<IReadOnlyList<Signal>>(
         ApiEnvelope<IReadOnlyList<Signal>>.CurrentSchemaVersion,
         CorrelationId.For(ctx),
-        items));
+        items,
+        next));
 });
 
 api.MapGet("/devices", IResult (IDeviceRepository repo, IAuditLog audit, HttpContext ctx) =>
@@ -222,11 +226,15 @@ api.MapGet("/devices", IResult (IDeviceRepository repo, IAuditLog audit, HttpCon
     // NFR-S2: every identifier/location read is audit-logged (probes are not).
     audit.Record("local-operator", "read:devices", ctx.Request.QueryString.Value ?? string.Empty);
 
-    var items = repo.GetDevices(page.Take).Skip(page.Offset).Take(page.Limit).ToList();
+    var raw = repo.GetDevices(page.TakePeek).Skip(page.Offset).Take(page.Limit + 1).ToList();
+    var hasMore = raw.Count > page.Limit;
+    var items = hasMore ? raw.Take(page.Limit).ToList() : raw;
+    string? next = hasMore ? Pagination.EncodeCursor(page.Offset + page.Limit) : null;
     return Results.Ok(new ApiEnvelope<IReadOnlyList<Device>>(
         ApiEnvelope<IReadOnlyList<Device>>.CurrentSchemaVersion,
         CorrelationId.For(ctx),
-        items));
+        items,
+        next));
 });
 
 api.MapGet("/alerts", IResult (IAlertRepository repo, HttpContext ctx) =>
@@ -234,11 +242,15 @@ api.MapGet("/alerts", IResult (IAlertRepository repo, HttpContext ctx) =>
     if (!Pagination.TryResolve(ctx, out var page, out var error))
         return error!;
 
-    var items = repo.GetAlerts(page.Take).Skip(page.Offset).Take(page.Limit).ToList();
+    var raw = repo.GetAlerts(page.TakePeek).Skip(page.Offset).Take(page.Limit + 1).ToList();
+    var hasMore = raw.Count > page.Limit;
+    var items = hasMore ? raw.Take(page.Limit).ToList() : raw;
+    string? next = hasMore ? Pagination.EncodeCursor(page.Offset + page.Limit) : null;
     return Results.Ok(new ApiEnvelope<IReadOnlyList<Alert>>(
         ApiEnvelope<IReadOnlyList<Alert>>.CurrentSchemaVersion,
         CorrelationId.For(ctx),
-        items));
+        items,
+        next));
 });
 
 // The MVP "what changed / how many" answer (SPEC §9.2 GET /summary, MVP criterion 7 text form).
@@ -367,11 +379,15 @@ api.MapGet("/emitters", IResult (IEmitterRepository repo, HttpContext ctx) =>
     if (!Pagination.TryResolve(ctx, out var page, out var error))
         return error!;
 
-    var items = repo.All().Skip(page.Offset).Take(page.Limit).ToList();
+    var raw = repo.All().Skip(page.Offset).Take(page.Limit + 1).ToList();
+    var hasMore = raw.Count > page.Limit;
+    var items = hasMore ? raw.Take(page.Limit).ToList() : raw;
+    string? next = hasMore ? Pagination.EncodeCursor(page.Offset + page.Limit) : null;
     return Results.Ok(new ApiEnvelope<IReadOnlyList<Emitter>>(
         ApiEnvelope<IReadOnlyList<Emitter>>.CurrentSchemaVersion,
         CorrelationId.For(ctx),
-        items));
+        items,
+        next));
 });
 
 // A single emitter by id (SPEC §9.2 GET /emitters/{id}): 404 RFC 7807 problem-details when missing.

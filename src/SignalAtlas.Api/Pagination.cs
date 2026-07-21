@@ -7,6 +7,12 @@ public readonly record struct Page(int Limit, int Offset)
 {
     /// <summary>Rows to pull from the repo before skipping the offset (saturating to avoid overflow).</summary>
     public int Take => (int)Math.Min((long)Offset + Limit, int.MaxValue);
+
+    /// <summary>
+    /// Rows to pull from the repo to both fill the page AND peek one row past it (saturating to avoid
+    /// overflow), so endpoints can detect a next page without a repo-level Count().
+    /// </summary>
+    public int TakePeek => (int)Math.Min((long)Offset + Limit + 1, int.MaxValue);
 }
 
 /// <summary>
@@ -56,6 +62,9 @@ public static class Pagination
         page = new Page(limit, offset);
         return true;
     }
+
+    /// <summary>Symmetric producer for <see cref="TryDecodeCursor"/>: encodes an offset as an opaque cursor.</summary>
+    public static string EncodeCursor(int offset) => Convert.ToBase64String(Encoding.UTF8.GetBytes(offset.ToString()));
 
     private static bool TryDecodeCursor(string cursor, out int offset)
     {
