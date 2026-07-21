@@ -30,9 +30,10 @@ identity → correlate emitters → geolocate → behavior/anomaly → map/UI. .
 5. **Every `/api/v1` route is auth-gated.** Routes go through the `/api/v1` group which carries
    `AuthGateMarker` + `AuthorizationGateFilter`. A contract test enumerates endpoints and fails if
    any is ungated. `/health`, `/ready`, `/metrics`, and `/hub/live` are intentionally ungated.
-6. **Wire contract = camelCase DTOs.** REST envelope is `{schemaVersion, correlationId, payload}`.
-   SignalR hub events and the frontend `web/src/api.ts` types **must match the real JSON payloads
-   exactly** (see landmine #1 below).
+6. **Wire contract = camelCase DTOs.** REST envelope is `{schemaVersion, correlationId, payload}`;
+   paginated list endpoints (`/signals`, `/devices`, `/alerts`, `/emitters`) also carry an optional
+   top-level `nextCursor` (base64 forward cursor, null on the last page). SignalR hub events and the
+   frontend `web/src/api.ts` types **must match the real JSON payloads exactly** (see landmine #1 below).
 
 ---
 
@@ -55,9 +56,11 @@ identity → correlate emitters → geolocate → behavior/anomaly → map/UI. .
 
 ## Deliberate seams that look unfinished (they're intentional)
 
-- **IQ→bits demodulation is DEFERRED** behind `IDemodulator`. Decoders (`SignalAtlas.Decode`)
-  operate on already-demodulated **frame bytes**, not raw IQ — the per-protocol DSP front-end needs
-  a physical HackRF + field `.iq` fixtures. Live mode therefore classifies protocols but does **not**
+- **IQ→bits demodulation is DEFERRED** behind `IDemodulator` for **most** protocols — decoders
+  (`SignalAtlas.Decode`) operate on already-demodulated **frame bytes**, not raw IQ; the per-protocol
+  DSP front-end needs a physical HackRF + field `.iq` fixtures. **Exception: ADS-B** has a real
+  streaming demodulator (`AdsBDemodulator`) turning 1090 MHz IQ into Mode S frames (it carries frames
+  across IQ-block boundaries — see landmine #10). Other live protocols still classify but do **not**
   determine devices yet (correlation runs RF-only). This is by design, not a TODO to "finish" blindly.
 - **Live Claude client is STUBBED.** `IClaudeClient`'s real HTTP impl (reads the key via
   `ISecretProvider` → `SignalAtlas:ClaudeApiKey`) is not built; `StubClaudeClient` is used everywhere.
@@ -95,13 +98,22 @@ identity → correlate emitters → geolocate → behavior/anomaly → map/UI. .
    shipped artifact. It lives only in `tests/SignalAtlas.Tests.Persistence`. Postgres is production.
 7. **Provider-split schema.** `SignalAtlasDbContext` uses composite `(time,id)` PKs on **Npgsql**
    (Timescale hypertables need the partition column in the PK) but single-column surrogate keys on
-   **SQLite**. JSON members (evidence/identifiers/features/citations) are stored as **text via a
-   ValueConverter** so the same model works on both providers.
+   **SQLite**. JSON members (evidence/identifiers/features/citations/**receiver_config**) are stored as
+   **text via a ValueConverter** (a record stored this way also needs a `ValueComparer` for EF change
+   tracking) so the same model works on both providers. Note: `Observation.BandwidthHz` is the
+   **analog filter passband** (from the receiver config when known), **not** the ADC sample rate.
 8. **`Emitter` has no bandwidth or last_seen field**, so the correlation engine's temporal &
    bandwidth scoring terms are **dormant** (reserved in `CorrelationOptions`). Adding them requires
    persisting emitter state over time — a tracked follow-up, not a quick fix.
 9. **Background servers via `&`**: the Bash tool's cwd can reset between calls; start the web dev
    server with an explicit `cd web`. Kill stray listeners by port before re-running.
+10. **Stateful demodulators must be `AddTransient`, not `AddSingleton`.** `AdsBDemodulator` carries an
+    inter-block sample tail (frames straddling IQ-block boundaries) as instance state, so it is
+    registered **`AddTransient<IDemodulator, …>`** — each stream/connection gets its own instance
+    (both pipeline build sites resolve `sp.GetServices<IDemodulator>()` fresh per pipeline, and one
+    `Run()` feeds that instance blocks sequentially). Reverting it to a singleton interleaves carry-over
+    across concurrent `/ingest/iq` streams and corrupts them. The demod is also **eager** (returns a
+    `List`, not a `yield` iterator) so the carry can't desync on partial enumeration.
 
 ---
 

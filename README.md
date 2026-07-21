@@ -73,8 +73,9 @@ device in the browser's WebUSB permission prompt. The browser reads IQ over WebU
 streams it to the API over a binary WebSocket (`/ingest/iq`); the backend runs the same
 classify → correlate → anomaly pipeline and pushes the live waterfall/occupancy over
 SignalR. The radio is **receive-only** (no transmit path exists) and raw IQ never leaves
-the edge — only spectra/features are produced. Tune center freq / sample rate / gains from
-the navbar popover; a previously-authorized device reconnects on load without re-prompting.
+the edge — only spectra/features are produced. Tune center freq / sample rate / gains /
+bias-tee from the navbar popover (the RX config is recorded as capture provenance); a
+previously-authorized device reconnects on load without re-prompting.
 
 Requirements: a WebUSB browser (**Chrome or Edge**) and the API running (so the Vite proxy
 reaches `/ingest/iq` on 5285). On **Windows**, install the WinUSB driver for the HackRF with

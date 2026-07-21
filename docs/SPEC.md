@@ -354,10 +354,11 @@ Observation ─classify→ Signal ─decode→ DecodedFrame ─determine→ Devi
 CREATE TABLE observations (
   id BIGINT GENERATED ALWAYS AS IDENTITY, time TIMESTAMPTZ NOT NULL,
   time_source TEXT NOT NULL, collector_id TEXT NOT NULL, seq BIGINT NOT NULL,
-  frequency_hz BIGINT NOT NULL, bandwidth_hz INTEGER NOT NULL,
+  frequency_hz BIGINT NOT NULL, bandwidth_hz INTEGER NOT NULL,   -- analog filter passband (from receiver_config when known), not the ADC sample rate
   power REAL NOT NULL, power_ref TEXT NOT NULL,          -- 'relative'|'calibrated' (G20)
   snr_db REAL, latitude DOUBLE PRECISION, longitude DOUBLE PRECISION,
   position_q TEXT NOT NULL, iq_ref TEXT, correlation_id UUID NOT NULL,
+  receiver_config JSONB,                                 -- RX provenance (§8.1): gain stages/baseband filter/bias-tee; null for file/synthetic sources
   PRIMARY KEY (time, id));
 
 CREATE TABLE signals (
@@ -416,7 +417,7 @@ CREATE TABLE sync_outbox (                                -- (G28) append-only e
 
 ### 7.3 Evidence object — `[{feature,value,weight}]`, non-empty; decoded frames add parsed field + CRC pass. Rendered verbatim by the UI (P4).
 ### 7.4 Identifier object — protocol-specific `{bssid,ssid,mac,icao,callsign,pan_id,...}`; `vendor` from OUI lookup.
-### 7.5 Message contracts — versioned envelopes `{schemaVersion,correlationId,payload}`; gRPC in §9.3; backward-compatible within a major; contract tests pin shapes.
+### 7.5 Message contracts — versioned envelopes `{schemaVersion,correlationId,payload}` (paginated list responses add an optional top-level `nextCursor`, §9); gRPC in §9.3; backward-compatible within a major; contract tests pin shapes.
 ### 7.6 Retention — observations full 7d→1-min rollups→drop raw 7d; signals/decoded_frames full 30d→5-min rollups kept 1y; devices/emitters/fingerprints persistent; raw IQ ring buffer only; incidental cleartext not persisted past determination. Timescale policies, tested (G15).
 ### 7.7 Backup & export (G25) — scheduled backup of identity stores; restore tested; export devices→GeoJSON/KML (map) + CSV/JSON; signals→JSON.
 ### 7.8 Sync & conflict model (G28) — `sync_outbox` is append-only; edge pushes events to backend when online; **deterministic IDs** (emitter/device IDs derived from stable content/identifiers) make upserts idempotent; merge rule: union of observations, max(last_seen), identity reconciled by primary_identifier then fingerprint; sync never blocks the edge (NFR-R4).

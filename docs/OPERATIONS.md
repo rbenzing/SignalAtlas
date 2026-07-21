@@ -24,7 +24,15 @@ non-loopback address after the authorization gate is upgraded from single-operat
 | `Ingestion:Enabled` | run the live ingestion loop on startup | `false` |
 | `Ingestion:IqFile` | replay an `.iq` file when no HackRF is present | unset |
 | `Ingestion:BoundedCapacity` | bounded backpressure buffer size (drop-oldest) | unset (synchronous) |
+| `Ingestion:CenterFreqHz` / `Ingestion:SampleRateHz` | tuning for the file/synthetic + native-HackRF source (Hz) | `915000000` / `2000000` |
+| `Ingestion:SamplesPerBlock` | IQ samples per processing block | `8192` |
+| `Ingestion:Gain:AmpEnable` / `:LnaDb` / `:VgaDb` | native-HackRF RX gain stages (amp 0/+14 dB; LNA 0–40 dB step 8; VGA 0–62 dB step 2) — validated against HackRF limits, fail-fast on out-of-range | `false` / `16` / `20` |
+| `Ingestion:BasebandBwHz` / `Ingestion:BiasTee` | native-HackRF baseband filter width (Hz) / antenna-port +3.3 V bias-tee | ~sample rate / `false` |
 | `SignalAtlas:ClaudeApiKey` / `CLAUDE_API_KEY` | optional Claude uplift key (M12/M13) | unset |
+
+> The `Ingestion:Gain:*` / `BasebandBwHz` / `BiasTee` keys drive the **native (SoapySDR) HackRF** source
+> (dormant until that device is present). The **browser WebUSB** path sets these from the navbar popover
+> instead and sends them as capture provenance — it does not read these keys.
 
 **Secrets:** the Claude API key is read via `ISecretProvider` from configuration / env / user-secrets
 and is never logged or committed. Use environment variables or a secret store in production — never
@@ -105,9 +113,11 @@ anomaly) and live SignalR push. The protocol is a JSON `config` text frame (cent
   raw IQ is consumed into spectra/features and never persisted or forwarded. Backpressure is
   drop-oldest on both ends (the browser drops when the socket buffer backs up; the backend channel
   is bounded drop-oldest).
-- **Tuning:** center frequency, sample rate, and gains are set from the navbar popover (defaults
-  915 MHz, 2 MS/s, LNA 16 dB, VGA 20 dB, amp off). A previously-authorized device auto-reconnects
-  on page load without re-prompting.
+- **Tuning:** center frequency, sample rate, gains, and antenna-port bias-tee are set from the navbar
+  popover (defaults 915 MHz, 2 MS/s, LNA 16 dB, VGA 20 dB, amp off, bias-tee off) and are sent to the
+  backend as capture provenance. A previously-authorized device auto-reconnects on page load without
+  re-prompting. **Bias-tee supplies +3.3 V to the antenna port — enable it only for an external powered
+  LNA; it can damage passive antennas or other equipment.**
 - **Scope:** like other live modes, this determines protocols but **not devices** (IQ→bits
   demodulation deferred — see §9).
 
