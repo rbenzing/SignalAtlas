@@ -49,6 +49,7 @@ public sealed class IngestionPipeline
     private readonly ICprPositionResolver? _cpr;
     private readonly ISatelliteImageDecoder? _satDecoder;
     private readonly IAptImageStore? _aptImages;
+    private readonly IAudioSink? _audio;
 
     public IngestionPipeline(
         string collectorId,
@@ -70,7 +71,8 @@ public sealed class IngestionPipeline
         IDeviceRepository? devices = null,
         ICprPositionResolver? cpr = null,
         ISatelliteImageDecoder? satDecoder = null,
-        IAptImageStore? aptImages = null)
+        IAptImageStore? aptImages = null,
+        IAudioSink? audio = null)
     {
         _collector = new ScanCollector(collectorId, clock, position);
         _processor = processor ?? throw new ArgumentNullException(nameof(processor));
@@ -99,6 +101,10 @@ public sealed class IngestionPipeline
         // that runs alongside (not instead of) the frame-based decode block above. Null → no-op.
         _satDecoder = satDecoder;
         _aptImages = aptImages;
+        // Optional RF Audio Player tap (design §2): a singleton fan-out sink. Null → no-op (unchanged
+        // pipeline behavior); when supplied it never affects the RF-only pipeline result, only a side
+        // (transient, never-persisted) audio stream.
+        _audio = audio;
     }
 
     public IngestionResult Run(ISampleSource source, CancellationToken ct = default)
@@ -192,6 +198,10 @@ public sealed class IngestionPipeline
                     }
                 }
             }
+
+            // RF Audio Player tap (design §2): offer this block for live audio demod/fan-out. A no-op
+            // when disabled/no listener; never affects observations/signals/correlation/alerts above.
+            _audio?.Accept(block);
 
             // NOAA APT (Phase 1): parallel pass-decoder. Content held in-memory only (invariant-#3 carve-out).
             if (_satDecoder is not null && _aptImages is not null && _satDecoder.AppliesTo(block.CenterFreqHz))

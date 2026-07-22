@@ -179,6 +179,12 @@ builder.Services.AddHackRfCollectorIfAvailable();
 builder.Services.AddSignalR();
 builder.Services.AddSingleton<ILiveNotifier, SignalRLiveNotifier>();
 
+// RF Audio Player tap (design §2/§3): AudioHub is registered as itself (the /audio endpoint needs its
+// Register/Unregister/Configure methods beyond the tiny IAudioSink the pipeline depends on) AND as
+// IAudioSink so IngestionPipeline's optional audio param resolves the SAME singleton instance.
+builder.Services.AddSingleton<AudioHub>();
+builder.Services.AddSingleton<IAudioSink>(sp => sp.GetRequiredService<AudioHub>());
+
 // Live edge ingestion (SPEC §4.10). Gated OFF unless Ingestion:Enabled == "true", so the contract
 // tests (WebApplicationFactory, no ingestion config) never trigger it.
 builder.Services.AddHostedService<PipelineHostedService>();
@@ -507,6 +513,10 @@ app.MapHub<LiveHub>("/hub/live");
 
 // Binary WebSocket IQ ingress for a browser-owned HackRF (SPEC §4.10). Un-gated, like /hub/live.
 app.MapIqIngress();
+
+// RF Audio Player egress (design §3): binary PCM16LE stream of the live-demodulated audio. Un-gated,
+// loopback posture, like /ingest/iq and /hub/live.
+app.MapAudio();
 
 // Liveness probe (SPEC §5.5 NFR-R2): 200 whenever the process is up. Ungated.
 app.MapGet("/health", () => Results.Ok(new { status = "ok" }));
