@@ -28,6 +28,12 @@ public class IngestionPipelineDecodeTests
         public IEnumerable<IqBlock> Blocks() { yield return block; }
     }
 
+    // Multi-block source for the audio-tap regression below (SPEC ISampleSource, receive-only).
+    private sealed class ManyBlockSource(IReadOnlyList<IqBlock> blocks) : ISampleSource
+    {
+        public IEnumerable<IqBlock> Blocks() => blocks;
+    }
+
     private sealed class CapturingDeviceRepo : IDeviceRepository
     {
         public List<Device> Upserts { get; } = [];
@@ -61,6 +67,15 @@ public class IngestionPipelineDecodeTests
     }
 
     private sealed class NoopSignals : ISignalWriter { public void Add(Signal s) { } }
+
+    // RF Audio Player tap regression (design §2): counts Accept calls so a test can pin the
+    // pipeline actually invokes the seam once per block, not just that AudioHub itself works when
+    // driven directly.
+    private sealed class CapturingAudioSink : IAudioSink
+    {
+        public int Blocks;
+        public void Accept(IqBlock block) => Blocks++;
+    }
 
     private static IngestionPipeline Build(CapturingDeviceRepo devices, CapturingNotifier notifier) =>
         new(
@@ -318,5 +333,44 @@ public class IngestionPipelineDecodeTests
         Assert.Equal(2, devices.Upserts.Count);
         var advas = devices.Upserts.Select(d => d.Identifiers["adva"]).ToHashSet();
         Assert.Equal(new HashSet<string> { "3c:5a:b4:00:00:01", "3c:5a:b4:00:00:02" }, advas);
+    }
+
+    // --- RF Audio Player tap regression (design §2): the pipeline's per-block `_audio?.Accept(block)`
+    // call is otherwise untested by AudioHub/AudioEndpoint tests (which drive AudioHub directly and
+    // never go through IngestionPipeline) -- so removing that one line would pass every other suite
+    // silently. These pin the seam itself.
+
+    private static IngestionPipeline BuildWithAudio(IAudioSink? audio) =>
+        new(
+            collectorId: "audio-tap-test",
+            clock: new FixedClock(new DateTimeOffset(2026, 7, 22, 12, 0, 0, TimeSpan.Zero)),
+            position: new StaticPositionSource(null),
+            processor: new SignalProcessor(),
+            classifier: new RuleBasedClassifier(),
+            correlation: new WeightedCorrelationEngine(),
+            anomaly: new AnomalyEngine(),
+            observations: new NoopObs(),
+            signals: new NoopSignals(),
+            audio: audio);
+
+    [Fact]
+    public void Run_WithAudioSink_InvokesAcceptOncePerBlock()
+    {
+        var blocks = new[] { ToneBlock(), ToneBlock(), ToneBlock() };
+        var sink = new CapturingAudioSink();
+
+        BuildWithAudio(sink).Run(new ManyBlockSource(blocks));
+
+        Assert.Equal(blocks.Length, sink.Blocks);
+    }
+
+    [Fact]
+    public void Run_WithoutAudioSink_RunsWithoutThrowing()
+    {
+        // The pipeline is constructed WITHOUT the `audio:` arg (defaults to null) -- exercises the
+        // `_audio?.Accept(block)` null-guard directly, not just incidentally via other tests above.
+        var ex = Record.Exception(() => BuildWithAudio(audio: null).Run(new OneBlockSource(ToneBlock())));
+
+        Assert.Null(ex);
     }
 }
