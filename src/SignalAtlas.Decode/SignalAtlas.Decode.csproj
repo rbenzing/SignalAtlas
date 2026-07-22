@@ -2,6 +2,7 @@
 
   <ItemGroup>
     <ProjectReference Include="..\SignalAtlas.Domain\SignalAtlas.Domain.csproj" />
+    <ProjectReference Include="..\SignalAtlas.Processing\SignalAtlas.Processing.csproj" />
   </ItemGroup>
 
   <PropertyGroup>
