@@ -143,6 +143,13 @@ export const getSpectrumFrames = () => getEnvelope<SpectrumFrame[]>("/spectrum/f
 export const getSpectrumOccupancy = () => getEnvelope<SpectrumOccupancy>("/spectrum/occupancy");
 export const getSpectrumCoverage = () => getEnvelope<SpectrumCoverageBand[]>("/spectrum/coverage");
 
+/** Fetch a device's decoded image (e.g. NOAA APT). Returns the PNG Blob, or null on 404/none. */
+export async function getDeviceImage(id: string): Promise<Blob | null> {
+  const resp = await fetch(`${BASE}/api/v1/devices/${encodeURIComponent(id)}/image`);
+  if (!resp.ok) return null;
+  return resp.blob();
+}
+
 /** Ungated health probe — not enveloped. Returns true when reachable + ok. */
 export async function getHealth(): Promise<boolean> {
   try {

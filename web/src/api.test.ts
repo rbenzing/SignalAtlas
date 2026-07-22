@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, afterEach } from "vitest";
-import { getPaged, type ApiEnvelope, type Signal } from "./api";
+import { getPaged, getDeviceImage, type ApiEnvelope, type Signal } from "./api";
 
 function envelopeResponse<T>(env: ApiEnvelope<T>): Response {
   return {
@@ -69,5 +69,19 @@ describe("getPaged", () => {
     vi.stubGlobal("fetch", fetchMock);
 
     await expect(getPaged<Signal[]>("/signals")).rejects.toThrow(/500/);
+  });
+});
+
+describe("getDeviceImage", () => {
+  it("returns a Blob on 200 and null on 404", async () => {
+    const blob = new Blob([new Uint8Array([1, 2, 3])], { type: "image/png" });
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue({ ok: true, blob: () => Promise.resolve(blob) }),
+    );
+    expect(await getDeviceImage("a")).toBe(blob);
+
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue({ ok: false, status: 404 }));
+    expect(await getDeviceImage("a")).toBeNull();
   });
 });
