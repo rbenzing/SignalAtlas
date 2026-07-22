@@ -243,6 +243,15 @@ api.MapGet("/devices", IResult (IDeviceRepository repo, IAuditLog audit, HttpCon
         next));
 });
 
+api.MapGet("/devices/{id}/image", IResult (string id, IAptImageStore images, IAuditLog audit, HttpContext ctx) =>
+{
+    audit.Record("local-operator", "read:device-image", id);
+    var png = images.Get(id);
+    return png is null
+        ? Results.NotFound()
+        : Results.File(png, "image/png");
+});
+
 api.MapGet("/alerts", IResult (IAlertRepository repo, HttpContext ctx) =>
 {
     if (!Pagination.TryResolve(ctx, out var page, out var error))
