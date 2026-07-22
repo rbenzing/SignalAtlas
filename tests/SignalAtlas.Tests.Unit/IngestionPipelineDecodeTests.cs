@@ -5,6 +5,7 @@ using SignalAtlas.Decode;
 using SignalAtlas.Decode.Decoders;
 using SignalAtlas.Decode.Demodulators;
 using SignalAtlas.Domain;
+using SignalAtlas.Persistence;
 using SignalAtlas.Pipeline;
 using SignalAtlas.Processing;
 
@@ -210,6 +211,44 @@ public class IngestionPipelineDecodeTests
         frame[13] = (byte)((crc >> 8) & 0xFF);
         frame[14] = (byte)((crc >> 16) & 0xFF);
         return frame;
+    }
+
+    private static IngestionPipeline BuildWithSatDecoder(
+        CapturingDeviceRepo devices, ISatelliteImageDecoder satDecoder, IAptImageStore aptImages) =>
+        new(
+            collectorId: "apt-test",
+            clock: new FixedClock(new DateTimeOffset(2026, 7, 18, 12, 0, 0, TimeSpan.Zero)),
+            position: new StaticPositionSource(null),
+            processor: new SignalProcessor(),
+            classifier: new RuleBasedClassifier(),
+            correlation: new WeightedCorrelationEngine(),
+            anomaly: new AnomalyEngine(),
+            observations: new NoopObs(),
+            signals: new NoopSignals(),
+            devices: devices,
+            satDecoder: satDecoder,
+            aptImages: aptImages);
+
+    // NOAA APT (Phase 1): a synthetic 8-line pass, modulated by AptModulator (the decoder's known-
+    // good inverse fixture) and fed through the REAL pipeline — decoder, image store, device repo,
+    // and live notifier all real end-to-end.
+    [Fact]
+    public void Run_NoaaAptPass_StoresImageAndDeterminesSatelliteDevice()
+    {
+        var rows = new byte[8][];
+        for (int r = 0; r < 8; r++) { rows[r] = new byte[2080]; for (int c = 0; c < 2080; c++) rows[r][c] = (byte)(c & 0xFF); }
+        var block = SignalAtlas.Decode.AptModulator.Modulate(rows, 137_100_000, 2_000_000);
+
+        var devices = new CapturingDeviceRepo();
+        var images = new AptImageStore();
+        var pipeline = BuildWithSatDecoder(devices, new AptDecoder(), images);
+
+        pipeline.Run(new OneBlockSource(block));
+
+        var sat = devices.Upserts.FirstOrDefault(d => d.Protocol == "NOAA-APT");
+        Assert.NotNull(sat);
+        Assert.Equal("NOAA-19", sat!.PrimaryIdentifier);
+        Assert.NotNull(images.Get(sat.Id));
     }
 
     private static IngestionPipeline BuildWithDemodulator(

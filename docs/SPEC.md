@@ -479,6 +479,8 @@ Each: **Responsibility → Interface → Algorithm/Rules → Acceptance → Star
 **Acceptance:** AC-D1 ADS-B golden→ICAO/callsign FCS-pass; AC-D2 Wi-Fi beacon→BSSID/SSID+vendor; AC-D3 BLE adv→MAC/name, random-MAC flagged; AC-D4 encrypted→zero content; AC-D5 every frame/device has evidence; AC-D6 CRC fail→no device.
 **Test list:** [ ] ADS-B golden · [ ] Wi-Fi beacon golden · [ ] BLE adv golden · [ ] LoRa PHY-hdr golden · [ ] Zigbee MAC-hdr golden · [ ] FM RDS golden · [ ] OUI map (unknown→null) · [ ] random/static MAC flag · [ ] CRC fail→no device · [ ] decoder registry: unknown proto no-ops · [ ] L3 encrypted→zero content extracted · [ ] resolver: identifiers→type+vendor · [ ] Device layer renders "type near place" (E2E)
 
+**NOAA APT (Phase 1) — a separate, parallel pass-decoder** (`ISatelliteImageDecoder`/`AptDecoder`, 137 MHz FM): decodes public broadcast weather-satellite imagery to a `Device` (protocol `NOAA-APT`) alongside the frame-based decode above; the PNG lives only in the in-memory `IAptImageStore` (bounded, singleton) — never persisted, never egressed (invariant-#3 carve-out).
+
 ### 8.5 Emitter Correlation Engine (G8)
 **Responsibility:** assign signal to existing or new emitter/device. **Decoded identifier is primary key** (matching BSSID/ICAO → near-certain, NFR-A4 ≤2%); else weighted RF scoring (freq proximity, BW, protocol, space, time) ≥ threshold.
 **Acceptance:** AC-CR1 same ID→same device; AC-CR2 diff ID→new; AC-CR3 no-ID repeat→match via scoring; AC-CR4 false-new ≤ threshold; AC-CR5 evidence present.

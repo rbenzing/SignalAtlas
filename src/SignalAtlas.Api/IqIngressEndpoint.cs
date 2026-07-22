@@ -189,7 +189,9 @@ public static class IqIngressEndpoint
             registry: sp.GetService<IDecoderRegistry>(),
             resolver: sp.GetService<IDeviceResolver>(),
             devices: sp.GetService<IDeviceRepository>(),
-            cpr: sp.GetService<ICprPositionResolver>());
+            cpr: sp.GetService<ICprPositionResolver>(),
+            satDecoder: sp.GetService<ISatelliteImageDecoder>(),
+            aptImages: sp.GetService<IAptImageStore>());
     }
 
     private static async Task<(WebSocketMessageType Kind, byte[] Payload)> ReceiveAsync(

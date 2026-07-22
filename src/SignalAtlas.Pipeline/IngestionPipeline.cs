@@ -21,6 +21,12 @@ namespace SignalAtlas.Pipeline;
 /// correlation is stateful, SPEC §7.8); emitter↔device links remain a follow-up. A run also returns
 /// emitters/alerts in its <see cref="IngestionResult"/>.
 ///
+/// NOAA APT (SPEC §8.4 Phase 1) is a SEPARATE, parallel pass-decoder: when an
+/// <see cref="ISatelliteImageDecoder"/> and an <see cref="IAptImageStore"/> are supplied, each block
+/// is also offered to the satellite decoder independently of the frame-based decode stage above; a
+/// completed pass upserts a satellite <see cref="Device"/> and stores its image (in-memory only —
+/// invariant-#3 carve-out). Absent either dep, this stage is a no-op.
+///
 /// Deterministic (P5): same source bytes + same clock/position → identical result.
 /// </summary>
 public sealed class IngestionPipeline
@@ -41,6 +47,8 @@ public sealed class IngestionPipeline
     private readonly IDeviceResolver? _resolver;
     private readonly IDeviceRepository? _devices;
     private readonly ICprPositionResolver? _cpr;
+    private readonly ISatelliteImageDecoder? _satDecoder;
+    private readonly IAptImageStore? _aptImages;
 
     public IngestionPipeline(
         string collectorId,
@@ -60,7 +68,9 @@ public sealed class IngestionPipeline
         IDecoderRegistry? registry = null,
         IDeviceResolver? resolver = null,
         IDeviceRepository? devices = null,
-        ICprPositionResolver? cpr = null)
+        ICprPositionResolver? cpr = null,
+        ISatelliteImageDecoder? satDecoder = null,
+        IAptImageStore? aptImages = null)
     {
         _collector = new ScanCollector(collectorId, clock, position);
         _processor = processor ?? throw new ArgumentNullException(nameof(processor));
@@ -85,6 +95,10 @@ public sealed class IngestionPipeline
         _resolver = resolver;
         _devices = devices;
         _cpr = cpr;
+        // Optional NOAA APT pass-decoder (SPEC §8.4 Phase 1): a parallel, independent decode stage
+        // that runs alongside (not instead of) the frame-based decode block above. Null → no-op.
+        _satDecoder = satDecoder;
+        _aptImages = aptImages;
     }
 
     public IngestionResult Run(ISampleSource source, CancellationToken ct = default)
@@ -176,6 +190,18 @@ public sealed class IngestionPipeline
                         _devices.Upsert(device);
                         _notifier.DeviceDetermined(device);
                     }
+                }
+            }
+
+            // NOAA APT (Phase 1): parallel pass-decoder. Content held in-memory only (invariant-#3 carve-out).
+            if (_satDecoder is not null && _aptImages is not null && _satDecoder.AppliesTo(block.CenterFreqHz))
+            {
+                var pass = _satDecoder.Accept(block, features, obs.Time);
+                if (pass is not null)
+                {
+                    _aptImages.Put(pass.Device.Id, pass.PngImage);
+                    _devices?.Upsert(pass.Device);
+                    _notifier.DeviceDetermined(pass.Device);
                 }
             }
 
