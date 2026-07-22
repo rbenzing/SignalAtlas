@@ -5,7 +5,6 @@ using SignalAtlas.Decode;
 using SignalAtlas.Decode.Decoders;
 using SignalAtlas.Decode.Demodulators;
 using SignalAtlas.Domain;
-using SignalAtlas.Persistence;
 using SignalAtlas.Pipeline;
 using SignalAtlas.Processing;
 
@@ -34,6 +33,15 @@ public class IngestionPipelineDecodeTests
         public List<Device> Upserts { get; } = [];
         public IReadOnlyList<Device> GetDevices(int limit = 100) => Upserts;
         public void Upsert(Device device) => Upserts.Add(device);
+    }
+
+    // Local IAptImageStore fake (keeps this unit-test project free of a Persistence/EF dependency;
+    // the real bounded LRU AptImageStore is covered by its own Tests.Persistence suite).
+    private sealed class FakeAptImageStore : IAptImageStore
+    {
+        private readonly Dictionary<string, byte[]> _images = new();
+        public void Put(string deviceId, byte[] png) => _images[deviceId] = png;
+        public byte[]? Get(string deviceId) => _images.TryGetValue(deviceId, out var png) ? png : null;
     }
 
     private sealed class CapturingNotifier : ILiveNotifier
@@ -240,7 +248,7 @@ public class IngestionPipelineDecodeTests
         var block = SignalAtlas.Decode.AptModulator.Modulate(rows, 137_100_000, 2_000_000);
 
         var devices = new CapturingDeviceRepo();
-        var images = new AptImageStore();
+        var images = new FakeAptImageStore();
         var pipeline = BuildWithSatDecoder(devices, new AptDecoder(), images);
 
         pipeline.Run(new OneBlockSource(block));

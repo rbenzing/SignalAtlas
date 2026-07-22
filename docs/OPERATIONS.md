@@ -127,6 +127,10 @@ anomaly) and live SignalR push. The protocol is a JSON `config` text frame (cent
 ## 9. Known limits (this version)
 
 - IQ→bits demodulation front-end is deferred (needs field `.iq` fixtures); live mode determines
-  protocols but not devices until the demodulators land.
+  protocols but not devices until the demodulators land (exceptions: ADS-B and NOAA APT).
+- NOAA APT weather-satellite passes (137 MHz band) decode to a greyscale image served over the
+  gated `GET /devices/{id}/image` and shown in the device drawer. Per the invariant-#3 carve-out
+  the image is **in-memory only** (never persisted or egressed); georeferenced map placement is a
+  deferred Phase 2.
 - Single-node only; multi-sensor fusion and RBAC are seamed but deferred (ADR-9).
 - Encryption-at-rest and Timescale hypertable behavior are verified only in the Docker CI lane.

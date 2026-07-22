@@ -202,7 +202,11 @@ Built test-first (RED → GREEN → REFACTOR).
 ## Current limitations
 
 - **IQ→bits demodulation** is a seam pending a physical HackRF + field `.iq`
-  fixtures; live mode classifies protocols but defers device determination until then.
+  fixtures; live mode classifies protocols but defers device determination until then
+  (exceptions: ADS-B aircraft and NOAA APT satellites, which do decode live).
+- **NOAA APT weather-satellite imagery** (137 MHz) decodes live to a greyscale image shown in
+  the device drawer; per a documented invariant-#3 carve-out the image is held **in-memory only**
+  (never persisted, never egressed), and georeferenced map placement is a deferred **Phase 2**.
 - **Live Claude client** is stubbed — the analyst cloud mode and the M13 enhancement
   pass call an `IClaudeClient` that needs an API key (via `SignalAtlas:ClaudeApiKey`)
   and network; the offline/deterministic paths are fully functional.
