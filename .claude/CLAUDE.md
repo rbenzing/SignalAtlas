@@ -23,6 +23,9 @@ identity → correlate emitters → geolocate → behavior/anomaly → map/UI. .
 3. **Metadata, not content (L2/L3).** Decoders parse only cleartext identity/control fields
    (BSSID, ICAO, DevAddr, PAN…). Never parse/persist encrypted payload or personal content.
    The M13 egress guard (`EgressGuard`) asserts no raw IQ / cleartext leaves the edge.
+   **Carve-out (NOAA APT, SPEC §8.4 Phase 1):** the decoded satellite image is public, non-personal
+   broadcast weather imagery, not private content — `AptDecoder`/`IAptImageStore` hold it **in-memory
+   only**, it is **never persisted** to disk/DB and **never egressed**; `EgressGuard` remains in force.
 4. **Deterministic core (P5).** Same bytes → identical output. In `src/` domain/pipeline code do
    **not** use `DateTime.Now`, `Guid.NewGuid()`, or unseeded `Random`. Use the injected `IClock`,
    `DeterministicGuid.From(seed)`, and a **seeded** RNG (`SignalAtlas.Ml.DeterministicRng`).

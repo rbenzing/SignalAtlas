@@ -100,6 +100,12 @@ builder.Services.AddSingleton<IDeviceResolver, DeviceResolver>();
 builder.Services.AddTransient<IDemodulator, AdsBDemodulator>();
 builder.Services.AddSingleton<ICprPositionResolver, CprPositionResolver>();
 
+// NOAA APT (SPEC §8.4 Phase 1): parallel satellite-image pass-decoder. STATEFUL per stream
+// (landmine #10, mirrors AdsBDemodulator) -> Transient, never Singleton. The decoded-image store is
+// a shared, bounded, thread-safe cache -> Singleton. In-memory only (invariant-#3 carve-out).
+builder.Services.AddTransient<ISatelliteImageDecoder, SignalAtlas.Decode.AptDecoder>();
+builder.Services.AddSingleton<IAptImageStore, SignalAtlas.Persistence.AptImageStore>();
+
 // Edge signal-processing / classification / correlation / anomaly engines (SPEC §8.2/§8.3/§8.5/§8.8).
 // Registered here (the composition root) so the live ingestion pipeline can resolve them.
 builder.Services.AddSingleton<ISignalProcessor, SignalAtlas.Processing.SignalProcessor>();
