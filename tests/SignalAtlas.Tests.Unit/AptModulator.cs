@@ -19,8 +19,32 @@ public static class AptModulator
     private const double DeviationHz = 8_000.0; // peak FM deviation applied to the composite audio
 
     // Sync-A: 7 alternating high/low words at the start of every line (must match AptDecoder's
-    // SyncTemplate polarity exactly).
-    private static readonly byte[] SyncA = { 255, 0, 255, 0, 255, 0, 255 };
+    // SyncTemplate polarity exactly). Starts AND ends low so the sync-to-settle transition is not
+    // itself a full-scale jump.
+    private static readonly byte[] SyncA = { 0, 255, 0, 255, 0, 255, 0 };
+
+    // Constant low "settle" words between sync-A and the first real video pixel (mirrors real APT's
+    // sync -> space -> video structure). AptDecoder's 25-sample envelope boxcar still holds sync-A
+    // content immediately after correlation locks; without a settle gap that stale content leaks into
+    // the first video word(s) as a transient (must match AptDecoder's SettleWords count exactly).
+    private const int SettleWords = 10;
+
+    // Trailing low guard appended after each line's video, before the NEXT line's sync-A. Decoder-side
+    // this needs no special handling: it just flows through AptDecoder's normal "seeking" state (its
+    // low, non-alternating content correlates poorly against the sync template on its own, so it never
+    // triggers a false lock) -- its only purpose is to give the envelope boxcar a flat, low baseline to
+    // settle onto before the next sync-A's alternation begins.
+    private const int TrailingGuardWords = 10;
+
+    // AptDecoder's correlation-based lock doesn't land on the mathematically exact ideal word (the
+    // envelope boxcar's own causal group delay shifts it a little), so its fixed-width collection
+    // window isn't naturally centered on this row's true content. Rather than chase that with settle-
+    // length tuning (which also controls how much sync-A ringing gets flushed -- a different concern),
+    // pad each row with EdgeTrim extra words on both sides, duplicating the row's own first/last pixel.
+    // AptDecoder collects the padded width and keeps only the middle LineWidth words, discarding the
+    // padding -- so it doesn't matter which direction the lock-timing slop falls, real pixels are never
+    // exposed to it. Must match AptDecoder's EdgeTrim exactly.
+    private const int EdgeTrim = 4;
 
     /// <summary>rows: greyscale rows, each length 2080. Returns one IqBlock at centerFreqHz/sampleRateHz.</summary>
     public static IqBlock Modulate(byte[][] rows, long centerFreqHz = 137_100_000, int sampleRateHz = 2_000_000)
@@ -28,15 +52,23 @@ public static class AptModulator
         if (sampleRateHz % (int)AudioRate != 0)
             throw new ArgumentException($"sampleRateHz must be a multiple of {AudioRate}.", nameof(sampleRateHz));
 
-        // Continuous word sequence: sync-A + video pixels, one line after another. No gap between
-        // lines -- AptDecoder resyncs on the sync-A correlation, not on any assumed silence.
-        var words = new List<byte>(rows.Length * (SyncA.Length + LineWidth));
+        // Continuous word sequence: sync-A + settle + video pixels + a trailing low guard, one line
+        // after another. The trailing guard (constant low, matching sync-A's own low start/end level)
+        // lets AptDecoder's envelope boxcar fully settle back to baseline before the NEXT line's
+        // sync-A alternation begins -- without it, the boxcar is still smeared with the current line's
+        // near-white video tail when the next sync-A starts, which visibly skews exactly where the
+        // correlation peak (and therefore the lock position) falls, by a few words either way.
+        var words = new List<byte>(rows.Length * (SyncA.Length + SettleWords + LineWidth + 2 * EdgeTrim + TrailingGuardWords));
         foreach (var row in rows)
         {
             if (row.Length != LineWidth)
                 throw new ArgumentException($"each row must have length {LineWidth}.", nameof(rows));
             words.AddRange(SyncA);
+            for (int s = 0; s < SettleWords; s++) words.Add(0);
+            for (int s = 0; s < EdgeTrim; s++) words.Add(row[0]);
             words.AddRange(row);
+            for (int s = 0; s < EdgeTrim; s++) words.Add(row[LineWidth - 1]);
+            for (int s = 0; s < TrailingGuardWords; s++) words.Add(0);
         }
 
         // Word -> audio-sample assignment via the same fractional accumulator AptDecoder uses to
