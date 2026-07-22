@@ -141,11 +141,19 @@ export function basemapLabels(): { id: BasemapId; label: string }[] {
   return [{ id: "offline" as BasemapId, label: "Offline" }, ...ESRI_BASEMAPS.map((b) => ({ id: b.id as BasemapId, label: b.label }))];
 }
 
-/** Default basemap: an ESRI id iff VITE_BASEMAP_STYLE names one, else offline (no external calls). */
+/**
+ * Default basemap. Online-first: with NO `VITE_BASEMAP_STYLE` set the map opens on the ESRI
+ * satellite imagery (the operator is assumed online); "Offline" (blank + graticule) stays one click
+ * away in the switcher. If `VITE_BASEMAP_STYLE` names an ESRI id, that id is the default. If it is a
+ * real style URL (e.g. a bundled `pmtiles://` vector basemap) we default to "offline" so the ESRI
+ * raster layers stay hidden and that configured style shows through — a genuinely offline/air-gapped
+ * deployment therefore just sets `VITE_BASEMAP_STYLE` to its bundled style (or "offline" is one click).
+ */
 export function defaultBasemapId(): BasemapId {
   const v = (import.meta.env.VITE_BASEMAP_STYLE as string | undefined)?.trim();
+  if (!v) return "esri-imagery"; // online-first default: satellite
   const match = ESRI_BASEMAPS.find((b) => b.id === v);
-  return match ? match.id : "offline";
+  return match ? match.id : "offline"; // a real style URL → let it show; raster switcher stays off
 }
 
 /** Attribution text for the active basemap, or null for offline. */

@@ -40,8 +40,8 @@ describe("ESRI basemap registry", () => {
     expect(labels.map((l) => l.id)).toEqual(["offline", "esri-imagery", "esri-street", "esri-topo"]);
   });
 
-  it("defaults to offline and reports attribution per basemap", () => {
-    expect(defaultBasemapId()).toBe("offline"); // VITE_BASEMAP_STYLE unset in test env
+  it("defaults to ESRI satellite when unconfigured (online-first) and reports attribution per basemap", () => {
+    expect(defaultBasemapId()).toBe("esri-imagery"); // VITE_BASEMAP_STYLE unset → online-first satellite default
     expect(attributionFor("offline")).toBeNull();
     expect(attributionFor("esri-imagery")).not.toBeNull();
   });
