@@ -36,6 +36,7 @@ import {
   graticuleLayer,
   aircraftToGeoJSON,
   aircraftLayer,
+  collectFitCoordinates,
   RF_SOURCE,
   RF_POINT_LAYER,
   RF_HEATMAP_LAYER,
@@ -190,15 +191,17 @@ export default function RfMap() {
     map.setPaintProperty(RF_GRATICULE_LAYER, "line-color", chartTokens[mode].grid);
     map.setPaintProperty(RF_POINT_LAYER, "circle-stroke-color", chartTokens[mode].surface);
 
+    const aircraftFc = aircraftToGeoJSON(devices.data ?? []);
     const aSrc = map.getSource(AIRCRAFT_SOURCE) as GeoJSONSource | undefined;
-    aSrc?.setData(aircraftToGeoJSON(devices.data ?? []));
+    aSrc?.setData(aircraftFc);
     map.setPaintProperty(AIRCRAFT_POINT_LAYER, "circle-stroke-color", chartTokens[mode].surface);
 
-    if (!fittedRef.current && fc.features.length > 0) {
+    // Fit the initial view to emitters AND aircraft together — fitting to emitters alone can
+    // leave positioned aircraft (which may be nowhere near the emitters) off-screen forever.
+    const fitCoords = collectFitCoordinates(fc, aircraftFc);
+    if (!fittedRef.current && fitCoords.length > 0) {
       const bounds = new LngLatBounds();
-      for (const f of fc.features) {
-        bounds.extend(f.geometry.coordinates as [number, number]);
-      }
+      for (const c of fitCoords) bounds.extend(c);
       map.fitBounds(bounds, { padding: 64, maxZoom: 16, duration: 0 });
       fittedRef.current = true;
     }

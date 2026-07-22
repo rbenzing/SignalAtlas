@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
-import { aircraftToGeoJSON } from "./rfmap";
-import type { Device } from "../api";
+import { aircraftToGeoJSON, emittersToGeoJSON, collectFitCoordinates } from "./rfmap";
+import type { Device, Emitter } from "../api";
 
 function device(over: Partial<Device>): Device {
   return {
@@ -9,6 +9,16 @@ function device(over: Partial<Device>): Device {
     confidence: 1, evidence: [], latitude: null, longitude: null, altitudeFt: null,
     ...over,
   } as Device;
+}
+
+function emitter(over: Partial<Emitter>): Emitter {
+  return {
+    id: "e1", deviceId: null, protocol: "lora", freqCenterHz: 915e6, freqStabilityHz: 100,
+    confidence: 0.9, signalCount: 3,
+    estLatitude: 42.3601, estLongitude: -71.0589, estUncertaintyM: 50,
+    identifiers: {}, evidence: [{ feature: "test", value: "x", weight: 1 }],
+    ...over,
+  } as Emitter;
 }
 
 describe("aircraftToGeoJSON", () => {
@@ -20,5 +30,44 @@ describe("aircraftToGeoJSON", () => {
     expect(fc.features).toHaveLength(1);
     expect(fc.features[0].properties.id).toBe("A");
     expect(fc.features[0].geometry.coordinates).toEqual([3.91937, 52.2572]);
+  });
+});
+
+describe("collectFitCoordinates", () => {
+  it("includes aircraft coordinates alongside emitter coordinates", () => {
+    // Regression: the RF Map's initial fitBounds used to be computed from emitter
+    // features only, so a positioned aircraft far from the emitters (e.g. Boston
+    // emitters vs. an Amsterdam-area aircraft) was fitted out of view and never shown.
+    const { fc: emitterFc } = emittersToGeoJSON(
+      [emitter({ id: "boston-1", estLatitude: 42.3601, estLongitude: -71.0589 })],
+      "dark",
+    );
+    const aircraftFc = aircraftToGeoJSON([
+      device({ id: "ams-1", latitude: 52.3667, longitude: 4.9, altitudeFt: 38000 }),
+    ]);
+
+    const coords = collectFitCoordinates(emitterFc, aircraftFc);
+
+    expect(coords).toContainEqual([-71.0589, 42.3601]);
+    expect(coords).toContainEqual([4.9, 52.3667]);
+    expect(coords).toHaveLength(2);
+  });
+
+  it("returns aircraft-only coordinates when there are no emitters", () => {
+    const { fc: emitterFc } = emittersToGeoJSON([], "dark");
+    const aircraftFc = aircraftToGeoJSON([
+      device({ id: "ams-1", latitude: 52.3667, longitude: 4.9, altitudeFt: 38000 }),
+    ]);
+
+    const coords = collectFitCoordinates(emitterFc, aircraftFc);
+
+    expect(coords).toEqual([[4.9, 52.3667]]);
+  });
+
+  it("returns an empty list when neither emitters nor aircraft are placeable", () => {
+    const { fc: emitterFc } = emittersToGeoJSON([], "dark");
+    const aircraftFc = aircraftToGeoJSON([device({ id: "b", latitude: null, longitude: null })]);
+
+    expect(collectFitCoordinates(emitterFc, aircraftFc)).toEqual([]);
   });
 });
