@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import Box from "@mui/material/Box";
 import Drawer from "@mui/material/Drawer";
 import Divider from "@mui/material/Divider";
@@ -15,7 +15,7 @@ import ProtocolLegend from "../components/ProtocolLegend";
 import Loading from "../components/Loading";
 import ErrorState from "../components/ErrorState";
 import { protocolLabels } from "../theme/palette";
-import { getDevices, usePolling, type Device } from "../api";
+import { getDeviceImage, getDevices, usePolling, type Device } from "../api";
 
 const columns: Column<Device>[] = [
   {
@@ -56,6 +56,53 @@ function DetailRow({ label, value }: { label: string; value: React.ReactNode }) 
         {value}
       </Typography>
     </Box>
+  );
+}
+
+function SatelliteImage({ deviceId }: { deviceId: string }) {
+  const [url, setUrl] = useState<string | null>(null);
+  const [pending, setPending] = useState(true);
+  useEffect(() => {
+    let active = true;
+    let objectUrl: string | null = null;
+    getDeviceImage(deviceId).then((blob) => {
+      if (!active) return;
+      if (blob) {
+        objectUrl = URL.createObjectURL(blob);
+        setUrl(objectUrl);
+      }
+      setPending(false);
+    });
+    return () => {
+      active = false;
+      if (objectUrl) URL.revokeObjectURL(objectUrl);
+    };
+  }, [deviceId]);
+  return (
+    <>
+      <Divider sx={{ my: 1.5 }} />
+      <Typography variant="subtitle2" sx={{ mb: 0.5 }}>
+        Decoded image
+      </Typography>
+      {url ? (
+        <Box
+          component="img"
+          src={url}
+          alt="Decoded APT image"
+          sx={{
+            width: "100%",
+            imageRendering: "pixelated",
+            borderRadius: 1,
+            border: 1,
+            borderColor: "divider",
+          }}
+        />
+      ) : (
+        <Typography variant="caption" color="text.secondary">
+          {pending ? "Loading…" : "Image pending"}
+        </Typography>
+      )}
+    </>
   );
 }
 
@@ -143,6 +190,8 @@ export default function Devices() {
                   </Stack>
                 </>
               )}
+
+              {selected.protocol === "NOAA-APT" && <SatelliteImage deviceId={selected.id} />}
 
               <Divider sx={{ my: 1.5 }} />
               <Typography variant="subtitle2" sx={{ mb: 0.5 }}>
