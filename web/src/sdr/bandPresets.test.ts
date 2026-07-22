@@ -8,6 +8,7 @@ const KNOWN_KEYS = [
   "ism-sub-ghz",
   "airband",
   "marine-vhf",
+  "noaa-apt",
   "noaa-weather",
   "amateur-2m",
   "amateur-70cm",
@@ -78,5 +79,9 @@ describe("activeBand", () => {
 
   it("still resolves a non-overlapping band correctly (regression guard)", () => {
     expect(activeBand(98_000_000)?.key).toBe("fm-broadcast");
+  });
+
+  it("resolves the NOAA APT satellite band at 137.1 MHz", () => {
+    expect(activeBand(137_100_000)?.key).toBe("noaa-apt");
   });
 });

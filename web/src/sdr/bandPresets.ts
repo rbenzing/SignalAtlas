@@ -102,6 +102,19 @@ export const bandPresets: BandPreset[] = [
     ],
   },
   {
+    key: "noaa-apt",
+    label: "NOAA APT weather sat 137 MHz",
+    lowHz: 137_000_000,
+    highHz: 138_000_000,
+    centerFreqHz: 137_100_000,
+    sampleRateHz: 2 * MS, // APT needs ~40 kHz; 2 MS/s is the HackRF floor, decimated to 20 kHz audio backend-side
+    channels: [
+      { key: "noaa-19", label: "NOAA-19 · 137.100 MHz", centerFreqHz: 137_100_000, sampleRateHz: 2 * MS },
+      { key: "noaa-15", label: "NOAA-15 · 137.620 MHz", centerFreqHz: 137_620_000, sampleRateHz: 2 * MS },
+      { key: "noaa-18", label: "NOAA-18 · 137.9125 MHz", centerFreqHz: 137_912_500, sampleRateHz: 2 * MS },
+    ],
+  },
+  {
     key: "noaa-weather",
     label: "NOAA Weather Radio 162.4-162.55 MHz",
     lowHz: 162_400_000,
