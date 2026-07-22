@@ -37,7 +37,7 @@ public sealed class AptDecoder : ISatelliteImageDecoder
     private const int EnvelopeWindow = 25;
     private const double SyncThreshold = 0.55; // normalized (0..1) correlation to lock a line start
     private const int MinLinesToEmit = 4;
-    private const int MaxImageLines = 1200; // ~10 minutes of APT at 2 lines/sec
+    private const int MaxImageLines = 3000; // > a full ~15-min pass (~1800 lines at 2 lines/sec)
 
     // Sync-A template: 7 alternating high/low words (+1/-1) at the start of every line, starting AND
     // ending low. Must match AptModulator's SyncA polarity exactly (0,255,0,255,0,255,0 -> -1,1,-1,1,-1,1,-1).

@@ -200,8 +200,13 @@ public sealed class IngestionPipeline
                 if (pass is not null)
                 {
                     _aptImages.Put(pass.Device.Id, pass.PngImage);
-                    _devices?.Upsert(pass.Device);
-                    _notifier.DeviceDetermined(pass.Device);
+                    // Only announce a device we actually persisted (mirror the ADS-B branch): never
+                    // notify DeviceDetermined for a device that was never upserted into the repo.
+                    if (_devices is not null)
+                    {
+                        _devices.Upsert(pass.Device);
+                        _notifier.DeviceDetermined(pass.Device);
+                    }
                 }
             }
 
