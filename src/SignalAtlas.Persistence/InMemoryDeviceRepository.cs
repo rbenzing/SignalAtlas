@@ -24,6 +24,10 @@ public sealed class InMemoryDeviceRepository : IDeviceRepository, IDemoSeedStore
             Evidence: [new EvidenceItem("crc", "pass", 1.0), new EvidenceItem("df", "17", 0.5)]);
 
         var device = resolver.Resolve([adsb]);
+        // Give the seeded aircraft a real fix (Amsterdam-area) so the RF Map has a plottable
+        // device with zero hardware — this seed doubles as the map's offline regression fixture.
+        if (device is not null)
+            device = device with { Latitude = 52.3667, Longitude = 4.9000, AltitudeFt = 38000 };
         _devices = device is null ? [] : [device];
     }
 

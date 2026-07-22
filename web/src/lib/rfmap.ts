@@ -283,6 +283,22 @@ export function aircraftToGeoJSON(
   return { type: "FeatureCollection", features };
 }
 
+/**
+ * Coordinates the initial map view should fit — emitters AND aircraft together. Fitting to
+ * emitters alone can leave positioned aircraft (which may sit nowhere near the emitters) off the
+ * viewport permanently, since the view is only auto-fitted once. Pure so the "did we actually
+ * include the aircraft" behavior is unit-testable without a live MapLibre instance.
+ */
+export function collectFitCoordinates(
+  emitterFc: FeatureCollection<Point, EmitterFeatureProps>,
+  aircraftFc: FeatureCollection<Point, AircraftFeatureProps>,
+): [number, number][] {
+  const coords: [number, number][] = [];
+  for (const f of emitterFc.features) coords.push(f.geometry.coordinates as [number, number]);
+  for (const f of aircraftFc.features) coords.push(f.geometry.coordinates as [number, number]);
+  return coords;
+}
+
 /** Aircraft marker layer — a distinct amber circle (offline style has no sprites/glyphs for icons). */
 export function aircraftLayer(mode: ColorMode): LayerSpecification {
   return {
