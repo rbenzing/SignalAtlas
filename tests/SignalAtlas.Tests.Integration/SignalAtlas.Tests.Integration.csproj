@@ -26,6 +26,7 @@
     <ProjectReference Include="..\..\src\SignalAtlas.Api\SignalAtlas.Api.csproj" />
     <ProjectReference Include="..\..\src\SignalAtlas.Domain\SignalAtlas.Domain.csproj" />
     <ProjectReference Include="..\..\src\SignalAtlas.Persistence\SignalAtlas.Persistence.csproj" />
+    <ProjectReference Include="..\..\src\SignalAtlas.Geospatial\SignalAtlas.Geospatial.csproj" />
   </ItemGroup>
 
 </Project>
