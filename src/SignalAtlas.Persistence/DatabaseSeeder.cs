@@ -11,25 +11,32 @@ namespace SignalAtlas.Persistence;
 /// </summary>
 public static class DatabaseSeeder
 {
-    public static void SeedIfEmpty(SignalAtlasDbContext db, IDeviceResolver resolver, IAnomalyEngine engine)
+    /// <summary>
+    /// Seeds the demo rows into an empty DB. Only reached when the caller (<c>DatabaseInitializer</c>)
+    /// has already gated on <c>SeedDemoData</c> config, but <paramref name="seedDemo"/> also defaults
+    /// false here so a direct/test call is empty unless explicitly opted in.
+    /// </summary>
+    public static void SeedIfEmpty(SignalAtlasDbContext db, IDeviceResolver resolver, IAnomalyEngine engine, bool seedDemo = false)
     {
+        if (!seedDemo) return;
+
         var seeded = false;
 
         if (!db.Signals.Any())
         {
-            db.Signals.AddRange(new InMemorySignalRepository().GetSignals(int.MaxValue));
+            db.Signals.AddRange(new InMemorySignalRepository(seedDemo: true).GetSignals(int.MaxValue));
             seeded = true;
         }
 
         if (!db.Devices.Any())
         {
-            db.Devices.AddRange(new InMemoryDeviceRepository(resolver).GetDevices(int.MaxValue));
+            db.Devices.AddRange(new InMemoryDeviceRepository(resolver, seedDemo: true).GetDevices(int.MaxValue));
             seeded = true;
         }
 
         if (!db.Alerts.Any())
         {
-            db.Alerts.AddRange(new InMemoryAlertRepository(engine).GetAlerts(int.MaxValue));
+            db.Alerts.AddRange(new InMemoryAlertRepository(engine, seedDemo: true).GetAlerts(int.MaxValue));
             seeded = true;
         }
 

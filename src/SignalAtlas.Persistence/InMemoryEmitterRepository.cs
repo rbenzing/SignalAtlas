@@ -3,10 +3,12 @@ using SignalAtlas.Domain;
 namespace SignalAtlas.Persistence;
 
 /// <summary>
-/// Offline-first in-memory emitter store (SPEC §4.3). Seeded with a few emitters carrying realistic
-/// location estimates near Boston (42.36, -71.06) + protocol + evidence so the RF Map plots markers
-/// and uncertainty circles (§8.6) WITHOUT live ingestion. The live pipeline upserts correlated
+/// Offline-first in-memory emitter store (SPEC §4.3). Optionally seeded with a few emitters carrying
+/// realistic location estimates near Boston (42.36, -71.06) + protocol + evidence so the RF Map plots
+/// markers and uncertainty circles (§8.6) WITHOUT live ingestion. The live pipeline upserts correlated
 /// emitters on top, keyed idempotently on the deterministic emitter id (SPEC §7.8).
+/// Seeding is OFF by default — gated behind <c>seedDemo</c> (config key <c>SeedDemoData</c>, default
+/// false) so the offline UI shows honest empty state unless a developer opts in.
 /// </summary>
 public sealed class InMemoryEmitterRepository : IEmitterRepository, IDemoSeedStore
 {
@@ -15,8 +17,9 @@ public sealed class InMemoryEmitterRepository : IEmitterRepository, IDemoSeedSto
     // All() concurrently — a Dictionary is not thread-safe, so guard both (SPEC NFR-C3).
     private readonly object _sync = new();
 
-    public InMemoryEmitterRepository()
+    public InMemoryEmitterRepository(bool seedDemo = false)
     {
+        if (!seedDemo) return;
         foreach (var e in Seed())
             _emitters[e.Id] = e;
     }

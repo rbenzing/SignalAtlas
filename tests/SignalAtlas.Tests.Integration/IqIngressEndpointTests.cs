@@ -117,8 +117,9 @@ public class IqIngressEndpointTests(WebApplicationFactory<Program> factory)
     {
         // When a real device starts streaming, the seeded demo data must be cleared so the UI shows
         // live data only. Devices/emitters have no live data yet (decode/geolocation deferred), so
-        // they must go EMPTY once a stream starts.
-        var app = factory.WithWebHostBuilder(b => { });
+        // they must go EMPTY once a stream starts. Opt in to demo seeding explicitly (SeedDemoData
+        // defaults false since the product no longer seeds by default) so there is something to clear.
+        var app = factory.WithWebHostBuilder(b => b.UseSetting("SeedDemoData", "true"));
         var client = app.CreateClient();
 
         // Seed is present before any device connects.

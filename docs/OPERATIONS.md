@@ -7,7 +7,7 @@ operational-readiness findings. The edge runs **fully offline**; Docker/Postgres
 
 | Mode | How | Storage | Ingestion |
 |---|---|---|---|
-| Offline dev (default) | `dotnet run --project src/SignalAtlas.Api` | in-memory (seeded) | off |
+| Offline dev (default) | `dotnet run --project src/SignalAtlas.Api` | in-memory (empty; set `SeedDemoData=true` to seed) | off |
 | Offline + live capture | set `Ingestion__Enabled=true` | in-memory | file/synthetic/HackRF |
 | Browser WebUSB HackRF | **Connect HackRF** in the web navbar | in-memory | live, per-connection via `/ingest/iq` |
 | Persistent (Docker) | `docker compose up` | PostgreSQL + TimescaleDB | per config |
@@ -21,6 +21,7 @@ non-loopback address after the authorization gate is upgraded from single-operat
 | Key / env | Purpose | Default |
 |---|---|---|
 | `ConnectionStrings:SignalAtlas` | Postgres/Timescale connection; unset → in-memory | unset (offline) |
+| `SeedDemoData` | seed demo/synthetic rows (1 ADS-B device, 3 emitters, 1 LoRa signal, alerts, spectrum frames) into the in-memory repos / an empty DB at startup | `false` (empty, honest "no data" UI) |
 | `Ingestion:Enabled` | run the live ingestion loop on startup | `false` |
 | `Ingestion:IqFile` | replay an `.iq` file when no HackRF is present | unset |
 | `Ingestion:BoundedCapacity` | bounded backpressure buffer size (drop-oldest) | unset (synchronous) |

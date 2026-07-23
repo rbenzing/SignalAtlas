@@ -12,7 +12,11 @@ namespace SignalAtlas.Tests.Contract;
 public class AnalystEndpointTests(WebApplicationFactory<Program> factory)
     : IClassFixture<WebApplicationFactory<Program>>
 {
-    private readonly WebApplicationFactory<Program> _factory = factory;
+    // PostQuery_ReturnsEnvelopedAnswer_WithCitationsAndMode asserts citations from SEEDED emitters —
+    // opt in to demo seeding explicitly (SeedDemoData defaults false since the product no longer
+    // seeds by default).
+    private readonly WebApplicationFactory<Program> _factory =
+        factory.WithWebHostBuilder(b => b.UseSetting("SeedDemoData", "true"));
 
     [Fact]
     public async Task PostQuery_ReturnsEnvelopedAnswer_WithCitationsAndMode()

@@ -12,7 +12,10 @@ namespace SignalAtlas.Tests.Contract;
 public class SpectrumEndpointTests(WebApplicationFactory<Program> factory)
     : IClassFixture<WebApplicationFactory<Program>>
 {
-    private readonly WebApplicationFactory<Program> _factory = factory;
+    // This contract test asserts SEEDED synthetic frames are present — opt in to demo seeding
+    // explicitly (SeedDemoData defaults false since the product no longer seeds by default).
+    private readonly WebApplicationFactory<Program> _factory =
+        factory.WithWebHostBuilder(b => b.UseSetting("SeedDemoData", "true"));
 
     [Fact]
     public async Task GetFrames_ReturnsEnvelopedFrames_WithBoundedBins()

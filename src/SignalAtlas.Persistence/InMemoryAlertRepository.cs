@@ -3,10 +3,13 @@ using SignalAtlas.Domain;
 namespace SignalAtlas.Persistence;
 
 /// <summary>
-/// Offline-first in-memory alert store (SPEC §4.3). Seeds alerts by running a first-sighting event
-/// through the real <see cref="IAnomalyEngine"/>, exercising the actual detection path (SPEC §8.8)
-/// without a database. Bounded + thread-safe (SPEC NFR-C3): the live pipeline appends raised alerts
-/// from its own thread while REST handlers read concurrently; reads return the newest first.
+/// Offline-first in-memory alert store (SPEC §4.3). Optionally seeds alerts by running a
+/// first-sighting event through the real <see cref="IAnomalyEngine"/>, exercising the actual
+/// detection path (SPEC §8.8) without a database. Bounded + thread-safe (SPEC NFR-C3): the live
+/// pipeline appends raised alerts from its own thread while REST handlers read concurrently; reads
+/// return the newest first.
+/// Seeding is OFF by default — gated behind <c>seedDemo</c> (config key <c>SeedDemoData</c>, default
+/// false) so the offline UI shows honest empty state unless a developer opts in.
 /// </summary>
 public sealed class InMemoryAlertRepository : IAlertRepository, IAlertWriter, IDemoSeedStore
 {
@@ -16,8 +19,10 @@ public sealed class InMemoryAlertRepository : IAlertRepository, IAlertWriter, ID
     private readonly LinkedList<Alert> _alerts = new(); // oldest → newest
     private readonly object _sync = new();
 
-    public InMemoryAlertRepository(IAnomalyEngine engine)
+    public InMemoryAlertRepository(IAnomalyEngine engine, bool seedDemo = false)
     {
+        if (!seedDemo) return;
+
         var firstSighting = new AnomalyEvent(
             Time: new DateTimeOffset(2026, 7, 7, 12, 0, 0, TimeSpan.Zero),
             EmitterId: "EMT-000001",

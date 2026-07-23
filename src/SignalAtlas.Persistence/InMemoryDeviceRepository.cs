@@ -3,19 +3,27 @@ using SignalAtlas.Domain;
 namespace SignalAtlas.Persistence;
 
 /// <summary>
-/// Offline-first in-memory device store (SPEC §4.3). Seeds one device by running a sample decoded
-/// identity frame through the real <see cref="IDeviceResolver"/>, so the endpoint exercises the
+/// Offline-first in-memory device store (SPEC §4.3). Optionally seeds one device by running a sample
+/// decoded identity frame through the real <see cref="IDeviceResolver"/>, so the endpoint exercises the
 /// actual decode→determine path (SPEC §8.4) without a database. Live device determination is deferred
 /// (needs the IQ→bits demodulators), so when a real device is streaming the seed is cleared and this
 /// store is empty until decode lands.
+/// Seeding is OFF by default — gated behind <c>seedDemo</c> (config key <c>SeedDemoData</c>, default
+/// false) so the offline UI shows honest empty state unless a developer opts in.
 /// </summary>
 public sealed class InMemoryDeviceRepository : IDeviceRepository, IDemoSeedStore
 {
     private readonly List<Device> _devices;
     private readonly object _sync = new();
 
-    public InMemoryDeviceRepository(IDeviceResolver resolver)
+    public InMemoryDeviceRepository(IDeviceResolver resolver, bool seedDemo = false)
     {
+        if (!seedDemo)
+        {
+            _devices = [];
+            return;
+        }
+
         var adsb = new DecodedFrame(
             Protocol: "ADS-B",
             FrameType: "extended_squitter",

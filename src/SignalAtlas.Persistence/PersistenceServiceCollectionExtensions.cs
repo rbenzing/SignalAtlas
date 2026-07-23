@@ -1,5 +1,5 @@
 using Microsoft.EntityFrameworkCore;
-using Microsoft.Extensions.Configuration;
+using Microsoft.Extensions.Configuration; // GetValue<T> extension (Microsoft.Extensions.Configuration.Binder package)
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using SignalAtlas.Domain;
@@ -16,15 +16,20 @@ public static class PersistenceServiceCollectionExtensions
     public static IServiceCollection AddSignalAtlasPersistence(this IServiceCollection services, IConfiguration config)
     {
         var connectionString = config.GetConnectionString("SignalAtlas");
+        // Demo-data seeding is OFF by default (product decision: an offline install should show
+        // honest empty state, not fabricated demo contacts). Set SeedDemoData=true to restore the
+        // old seeded-offline-demo behavior (in-memory mode and the DB-empty seed both honor it).
+        var seedDemo = config.GetValue<bool>("SeedDemoData", false);
 
         // Spectrum waterfall buffer (SPEC §8.2): always in-memory (there is no PSD-frame DB table);
-        // seeded with synthetic frames so the Spectrum views render offline (§4.3). The live pipeline
-        // pushes real frames on top of the seeds (bounded ring, NFR-C3).
+        // optionally seeded with synthetic frames so the Spectrum views render offline (§4.3, gated by
+        // SeedDemoData). The live pipeline pushes real frames on top of any seeds (bounded ring, NFR-C3).
         services.AddSingleton<InMemorySpectrumBuffer>(_ =>
         {
             var buffer = new InMemorySpectrumBuffer();
-            foreach (var frame in SpectrumSeed.Frames())
-                buffer.Push(frame);
+            if (seedDemo)
+                foreach (var frame in SpectrumSeed.Frames())
+                    buffer.Push(frame);
             return buffer;
         });
         services.AddSingleton<ISpectrumBuffer>(sp => sp.GetRequiredService<InMemorySpectrumBuffer>());
@@ -64,18 +69,18 @@ public static class PersistenceServiceCollectionExtensions
         {
             services.AddSingleton<IObservationRepository, InMemoryObservationRepository>();
             // Signal read + write share one instance: register the concrete once, forward both interfaces.
-            services.AddSingleton<InMemorySignalRepository>();
+            services.AddSingleton(sp => new InMemorySignalRepository(seedDemo));
             services.AddSingleton<ISignalRepository>(sp => sp.GetRequiredService<InMemorySignalRepository>());
             services.AddSingleton<ISignalWriter>(sp => sp.GetRequiredService<InMemorySignalRepository>());
             services.AddSingleton<IDemoSeedStore>(sp => sp.GetRequiredService<InMemorySignalRepository>());
-            services.AddSingleton<InMemoryDeviceRepository>();
+            services.AddSingleton(sp => new InMemoryDeviceRepository(sp.GetRequiredService<IDeviceResolver>(), seedDemo));
             services.AddSingleton<IDeviceRepository>(sp => sp.GetRequiredService<InMemoryDeviceRepository>());
             services.AddSingleton<IDemoSeedStore>(sp => sp.GetRequiredService<InMemoryDeviceRepository>());
-            services.AddSingleton<InMemoryEmitterRepository>();
+            services.AddSingleton(sp => new InMemoryEmitterRepository(seedDemo));
             services.AddSingleton<IEmitterRepository>(sp => sp.GetRequiredService<InMemoryEmitterRepository>());
             services.AddSingleton<IDemoSeedStore>(sp => sp.GetRequiredService<InMemoryEmitterRepository>());
             // Alert read + write share one instance: register the concrete once, forward both interfaces.
-            services.AddSingleton<InMemoryAlertRepository>();
+            services.AddSingleton(sp => new InMemoryAlertRepository(sp.GetRequiredService<IAnomalyEngine>(), seedDemo));
             services.AddSingleton<IAlertRepository>(sp => sp.GetRequiredService<InMemoryAlertRepository>());
             services.AddSingleton<IAlertWriter>(sp => sp.GetRequiredService<InMemoryAlertRepository>());
             services.AddSingleton<IDemoSeedStore>(sp => sp.GetRequiredService<InMemoryAlertRepository>());
@@ -95,18 +100,24 @@ public static class PersistenceServiceCollectionExtensions
 /// rows at host startup (Npgsql path only). Migrations own the schema in production; the SQLite
 /// round-trip/integration tests build the SAME model directly via <c>EnsureCreated</c>.
 /// </summary>
-internal sealed class DatabaseInitializer(IServiceProvider services) : IHostedService
+internal sealed class DatabaseInitializer(IServiceProvider services, IConfiguration config) : IHostedService
 {
     public Task StartAsync(CancellationToken cancellationToken)
     {
         using var scope = services.CreateScope();
         var db = scope.ServiceProvider.GetRequiredService<SignalAtlasDbContext>();
-        var resolver = scope.ServiceProvider.GetRequiredService<IDeviceResolver>();
-        var engine = scope.ServiceProvider.GetRequiredService<IAnomalyEngine>();
 
         db.Database.Migrate();                  // forward-only Npgsql schema (composite time-PK hypertables).
         TimescaleInitializer.Initialize(db);    // Postgres-only hypertables + retention; no-op on SQLite.
-        DatabaseSeeder.SeedIfEmpty(db, resolver, engine);
+
+        // Demo-data seeding is OFF by default (SeedDemoData config, default false) — a fresh DB stays
+        // empty unless a developer opts in.
+        if (config.GetValue<bool>("SeedDemoData", false))
+        {
+            var resolver = scope.ServiceProvider.GetRequiredService<IDeviceResolver>();
+            var engine = scope.ServiceProvider.GetRequiredService<IAnomalyEngine>();
+            DatabaseSeeder.SeedIfEmpty(db, resolver, engine, seedDemo: true);
+        }
         return Task.CompletedTask;
     }
 
