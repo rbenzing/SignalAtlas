@@ -18,6 +18,7 @@
     <ProjectReference Include="..\SignalAtlas.Classification\SignalAtlas.Classification.csproj" />
     <ProjectReference Include="..\SignalAtlas.Ml\SignalAtlas.Ml.csproj" />
     <ProjectReference Include="..\SignalAtlas.Correlation\SignalAtlas.Correlation.csproj" />
+    <ProjectReference Include="..\SignalAtlas.Geospatial\SignalAtlas.Geospatial.csproj" />
     <ProjectReference Include="..\SignalAtlas.Pipeline\SignalAtlas.Pipeline.csproj" />
     <ProjectReference Include="..\SignalAtlas.Persistence\SignalAtlas.Persistence.csproj" />
   </ItemGroup>

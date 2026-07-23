@@ -9,6 +9,7 @@ using SignalAtlas.Decode;
 using SignalAtlas.Decode.Decoders;
 using SignalAtlas.Decode.Demodulators;
 using SignalAtlas.Domain;
+using SignalAtlas.Geospatial;
 using SignalAtlas.Persistence;
 
 var builder = WebApplication.CreateBuilder(args);
@@ -105,6 +106,13 @@ builder.Services.AddSingleton<ICprPositionResolver, CprPositionResolver>();
 // a shared, bounded, thread-safe cache -> Singleton. In-memory only (invariant-#3 carve-out).
 builder.Services.AddTransient<ISatelliteImageDecoder, SignalAtlas.Decode.AptDecoder>();
 builder.Services.AddSingleton<IAptImageStore, SignalAtlas.Persistence.AptImageStore>();
+
+// NOAA APT georeference (SPEC §8.4 Phase 2 design §2/§3): the approximate overlay-quad endpoint's
+// two collaborators. CelestrakTleProvider owns its own HttpClient (registered via the typed-client
+// factory so it's pooled/disposed correctly) and caches the fetched TLE set in-memory (offline
+// fetch failure -> null, never a throw). AptGeoReferencer is pure/stateless (P5) -> a plain singleton.
+builder.Services.AddHttpClient<ITleProvider, CelestrakTleProvider>();
+builder.Services.AddSingleton<AptGeoReferencer>();
 
 // Edge signal-processing / classification / correlation / anomaly engines (SPEC §8.2/§8.3/§8.5/§8.8).
 // Registered here (the composition root) so the live ingestion pipeline can resolve them.
@@ -256,6 +264,46 @@ api.MapGet("/devices/{id}/image", IResult (string id, IAptImageStore images, IAu
     return png is null
         ? Results.NotFound()
         : Results.File(png, "image/png");
+});
+
+// NOAA APT georeference (SPEC §8.4 Phase 2 design §3): the approximate overlay quad for the RF
+// Map, computed on demand from the device's satellite/passStart/lines identifiers (Phase 1, from
+// AptDecoder) plus an online TLE fetch. Offline-degrading (design §1): a missing/non-APT device,
+// or a TLE that can't be resolved (no network / unknown satellite), both fall through to 404 —
+// the map simply shows no weather overlay, it never breaks.
+api.MapGet("/devices/{id}/geo", async Task<IResult> (
+    string id,
+    IDeviceRepository devices,
+    ITleProvider tleProvider,
+    AptGeoReferencer referencer,
+    IAuditLog audit,
+    HttpContext ctx) =>
+{
+    audit.Record("local-operator", "read:device-geo", id);
+
+    var device = devices.GetDevices(int.MaxValue).FirstOrDefault(d => d.Id == id);
+    if (device is null || device.Protocol != "NOAA-APT")
+        return Results.NotFound();
+
+    if (!device.Identifiers.TryGetValue("satellite", out var satellite) ||
+        !device.Identifiers.TryGetValue("passStart", out var passStartRaw) ||
+        !device.Identifiers.TryGetValue("lines", out var linesRaw) ||
+        !DateTimeOffset.TryParse(passStartRaw, out var passStart) ||
+        !int.TryParse(linesRaw, out var lines))
+        return Results.NotFound();
+
+    var tle = await tleProvider.GetAsync(satellite, ctx.RequestAborted);
+    if (tle is null)
+        return Results.NotFound();
+
+    var quad = referencer.Reference(satellite, passStart, lines, tle);
+    if (quad is null)
+        return Results.NotFound();
+
+    return Results.Ok(new ApiEnvelope<AptGeoQuad>(
+        ApiEnvelope<AptGeoQuad>.CurrentSchemaVersion,
+        CorrelationId.For(ctx),
+        quad));
 });
 
 api.MapGet("/alerts", IResult (IAlertRepository repo, HttpContext ctx) =>
