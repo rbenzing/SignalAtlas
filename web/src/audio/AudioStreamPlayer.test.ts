@@ -146,6 +146,16 @@ describe("AudioStreamPlayer.play", () => {
     expect(JSON.parse(ws.sent[0] as string)).toEqual({ mode: "am", enabled: true });
   });
 
+  it("sends the config frame for the new usb/lsb/cw modes", () => {
+    const player = new AudioStreamPlayer();
+    player.play("usb");
+
+    const ws = FakeWebSocket.instances[0];
+    ws.onopen?.();
+
+    expect(JSON.parse(ws.sent[0] as string)).toEqual({ mode: "usb", enabled: true });
+  });
+
   it("creates and starts a buffer source for an incoming binary PCM frame", () => {
     const player = new AudioStreamPlayer();
     player.play("wbfm");

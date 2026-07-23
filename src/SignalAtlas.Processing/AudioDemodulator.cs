@@ -2,8 +2,9 @@ using SignalAtlas.Domain;
 
 namespace SignalAtlas.Processing;
 
-/// <summary>Audio demodulation mode selectable per audio session (RF Audio Player design §2/§3).</summary>
-public enum AudioMode { Wbfm, Nbfm, Am }
+/// <summary>Audio demodulation mode selectable per audio session (RF Audio Player design §2/§3).
+/// Usb/Lsb = single-sideband voice; Cw = Morse tone (SSB/USB with a fixed BFO offset).</summary>
+public enum AudioMode { Wbfm, Nbfm, Am, Usb, Lsb, Cw }
 
 /// <summary>Stateful per-session IQ->audio demodulator. Deterministic pure DSP. Output is PCM16
 /// mono little-endian at AudioRateHz (25 kHz). Receive-only: reads only I/Q.</summary>
@@ -26,6 +27,15 @@ public interface IAudioDemodulator
 /// Pipeline (design §2):
 ///   WBFM/NBFM: FmDiscriminator (box-decimate) -&gt; one-pole de-emphasis -&gt; resample to 25 kHz -&gt; PCM16
 ///   AM:        |I+jQ| envelope -&gt; box-decimate -&gt; one-pole DC-blocker -&gt; resample to 25 kHz -&gt; PCM16
+///   USB/LSB:   box-decimate I/Q (complex) -&gt; product detector (Re{(I+jQ)*e^-j*theta}, theta a BFO
+///              phase carried across calls) -&gt; one-pole highpass+lowpass voice band (~300-3000 Hz)
+///              -&gt; resample to 25 kHz -&gt; PCM16. LSB negates the Q term (mirrors the spectrum) --
+///              at the default 0 Hz BFO (receiver already tuned to the suppressed carrier) this is
+///              a coherent product detector: Re{A*e^(j*w*t)} = A*cos(w*t) for either sign of w, so
+///              USB and LSB recover the same on-frequency audio; the sign only matters if a BFO
+///              offset is introduced (as CW does below).
+///   CW:        identical to USB but with a fixed ~700 Hz BFO (<see cref="CwBfoHz"/>) so a bare
+///              carrier beats into an audible tone, and a narrower passband centred on it.
 ///
 /// Decimation: the raw decimation factor is floor(SampleRateHz / 25_000) (so 2 MS/s -&gt; exactly 80,
 /// landing on 25 kHz with no further resampling needed). When that floor doesn't divide evenly, the
@@ -60,6 +70,21 @@ public sealed class AudioDemodulator : IAudioDemodulator
     // One-pole DC-blocker pole per the design doc: y[n] = x[n] - x[n-1] + 0.995*y[n-1].
     private const double AmDcBlockPole = 0.995;
 
+    // SSB/CW: the product-detector output sits well within [-1,1] for a full-scale input tone, but
+    // real signals rarely hit full scale -- this gain gives normal signals usable headroom while the
+    // final clamp in ToPcm16 protects against outliers.
+    private const double SsbScale = short.MaxValue * 0.9;
+
+    // Voice SSB (USB/LSB) audio passband -- standard ham/HF voice bandwidth.
+    private const double SsbVoiceHighpassHz = 300.0;
+    private const double SsbVoiceLowpassHz = 3000.0;
+
+    // CW: a narrow passband centred on the BFO tone so only the beat note (not band noise) comes
+    // through, and the fixed BFO offset itself that turns a keyed carrier into an audible tone.
+    private const double CwHighpassHz = 500.0;
+    private const double CwLowpassHz = 900.0;
+    private const double CwBfoHz = 700.0;
+
     private readonly AudioMode _mode;
 
     private int _configuredSampleRateHz = -1;
@@ -71,6 +96,17 @@ public sealed class AudioDemodulator : IAudioDemodulator
     private double _deemphState;
     private double _dcBlockPrevIn;
     private double _dcBlockPrevOut;
+
+    // SSB/CW (USB/LSB/Cw) product-detector + voice-band state.
+    private double _ssbBfoHz;
+    private double _ssbSidebandSign;   // +1 for Usb/Cw, -1 for Lsb.
+    private double _ssbPhase;          // Running BFO phase, carried across Demodulate calls.
+    private double _ssbPhaseInc;
+    private double _ssbHpAlpha;
+    private double _ssbLpAlpha;
+    private double _ssbHpPrevIn;
+    private double _ssbHpPrevOut;
+    private double _ssbLpState;
 
     private float[] _resamplePending = Array.Empty<float>();
     private double _resamplePhase;
@@ -87,9 +123,12 @@ public sealed class AudioDemodulator : IAudioDemodulator
 
         EnsureConfigured(block.SampleRateHz);
 
-        float[] intermediate = _mode == AudioMode.Am
-            ? DemodulateAmToIntermediate(block)
-            : DemodulateFmToIntermediate(block);
+        float[] intermediate = _mode switch
+        {
+            AudioMode.Am => DemodulateAmToIntermediate(block),
+            AudioMode.Usb or AudioMode.Lsb or AudioMode.Cw => DemodulateSsbToIntermediate(block),
+            _ => DemodulateFmToIntermediate(block),
+        };
 
         float[] resampled = Resample(intermediate);
         return ToPcm16(resampled);
@@ -104,15 +143,35 @@ public sealed class AudioDemodulator : IAudioDemodulator
         double intermediateRate = (double)sampleRateHz / _rawDecimation;
         _resampleRatio = intermediateRate / TargetAudioRateHz;
 
-        _fm = _mode == AudioMode.Am ? null : new FmDiscriminator(_rawDecimation);
+        bool isFm = _mode is AudioMode.Wbfm or AudioMode.Nbfm;
+        _fm = isFm ? new FmDiscriminator(_rawDecimation) : null;
 
         double tau = _mode == AudioMode.Wbfm ? WbfmDeemphTauSeconds : NbfmDeemphTauSeconds;
         double dt = 1.0 / intermediateRate;
         _deemphAlpha = dt / (tau + dt);
 
+        bool isSsb = _mode is AudioMode.Usb or AudioMode.Lsb or AudioMode.Cw;
+        if (isSsb)
+        {
+            _ssbBfoHz = _mode == AudioMode.Cw ? CwBfoHz : 0.0;
+            _ssbSidebandSign = _mode == AudioMode.Lsb ? -1.0 : 1.0;
+
+            double hpHz = _mode == AudioMode.Cw ? CwHighpassHz : SsbVoiceHighpassHz;
+            double lpHz = _mode == AudioMode.Cw ? CwLowpassHz : SsbVoiceLowpassHz;
+            double hpTau = 1.0 / (2 * Math.PI * hpHz);
+            _ssbHpAlpha = hpTau / (hpTau + dt);
+            double lpTau = 1.0 / (2 * Math.PI * lpHz);
+            _ssbLpAlpha = dt / (lpTau + dt);
+            _ssbPhaseInc = 2 * Math.PI * _ssbBfoHz / intermediateRate;
+        }
+
         _deemphState = 0.0;
         _dcBlockPrevIn = 0.0;
         _dcBlockPrevOut = 0.0;
+        _ssbPhase = 0.0;
+        _ssbHpPrevIn = 0.0;
+        _ssbHpPrevOut = 0.0;
+        _ssbLpState = 0.0;
         _resamplePending = Array.Empty<float>();
         _resamplePhase = 0.0;
     }
@@ -170,6 +229,61 @@ public sealed class AudioDemodulator : IAudioDemodulator
         return audio;
     }
 
+    /// <summary>USB/LSB/CW: box-decimate complex I/Q, run a product detector against a (possibly
+    /// zero-Hz) BFO whose phase is carried across calls, then a one-pole highpass+lowpass voice-band
+    /// filter (also state-carried). See the class doc comment for why USB vs LSB only differ in the
+    /// sign applied to Q (inert at the default 0 Hz BFO; matters once a BFO offset -- e.g. CW -- is
+    /// introduced).</summary>
+    private float[] DemodulateSsbToIntermediate(IqBlock block)
+    {
+        int n = block.SampleCount;
+        int outLen = n / _rawDecimation;
+        var decI = new double[outLen];
+        var decQ = new double[outLen];
+        for (int m = 0; m < outLen; m++)
+        {
+            double sumI = 0.0, sumQ = 0.0;
+            int start = m * _rawDecimation;
+            for (int j = 0; j < _rawDecimation; j++)
+            {
+                sumI += block.I[start + j];
+                sumQ += block.Q[start + j];
+            }
+            decI[m] = sumI / _rawDecimation;
+            decQ[m] = sumQ / _rawDecimation;
+        }
+
+        var audio = new float[outLen];
+        double phase = _ssbPhase;
+        double hpPrevIn = _ssbHpPrevIn;
+        double hpPrevOut = _ssbHpPrevOut;
+        double lpState = _ssbLpState;
+        for (int m = 0; m < outLen; m++)
+        {
+            double c = Math.Cos(phase);
+            double s = Math.Sin(phase);
+            // Re{ (decI + j*decQ) * e^(-j*phase) } = decI*cos(phase) + decQ*sin(phase); Lsb negates
+            // the Q term (equivalent to conjugating the input, mirroring the spectrum).
+            double raw = decI[m] * c + _ssbSidebandSign * decQ[m] * s;
+
+            double hp = _ssbHpAlpha * (hpPrevOut + raw - hpPrevIn);
+            hpPrevIn = raw;
+            hpPrevOut = hp;
+
+            lpState += _ssbLpAlpha * (hp - lpState);
+            audio[m] = (float)lpState;
+
+            phase += _ssbPhaseInc;
+            if (phase >= 2 * Math.PI) phase -= 2 * Math.PI;
+        }
+        _ssbPhase = phase;
+        _ssbHpPrevIn = hpPrevIn;
+        _ssbHpPrevOut = hpPrevOut;
+        _ssbLpState = lpState;
+
+        return audio;
+    }
+
     /// <summary>Deterministic linear resampler from the intermediate rate to exactly
     /// <see cref="TargetAudioRateHz"/>, carrying its fractional phase and the input tail needed for
     /// interpolation across calls (mirrors <see cref="FmDiscriminator"/>'s phase-carry pattern).</summary>
@@ -220,7 +334,12 @@ public sealed class AudioDemodulator : IAudioDemodulator
 
     private byte[] ToPcm16(float[] audio)
     {
-        double scale = _mode == AudioMode.Am ? AmScale : FmScale;
+        double scale = _mode switch
+        {
+            AudioMode.Am => AmScale,
+            AudioMode.Usb or AudioMode.Lsb or AudioMode.Cw => SsbScale,
+            _ => FmScale,
+        };
         var bytes = new byte[audio.Length * 2];
         for (int i = 0; i < audio.Length; i++)
         {

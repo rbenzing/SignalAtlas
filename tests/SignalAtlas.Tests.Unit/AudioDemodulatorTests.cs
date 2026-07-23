@@ -41,6 +41,39 @@ public class AudioDemodulatorTests
         return new IqBlock(100_000_000, Fs, i, q);
     }
 
+    /// <summary>SSB-modulate a single audio tone as a complex exponential at +audioFreqHz (upper
+    /// sideband) or -audioFreqHz (lower sideband): I=cos, Q=+/-sin. This is exactly what a
+    /// suppressed-carrier SSB transmitter, down-converted to zero-IF, presents to the receiver --
+    /// content strictly on one side of the (suppressed) carrier's baseband frequency.</summary>
+    private static IqBlock SsbModulatedTone(double audioFreqHz, int n, bool upperSideband)
+    {
+        var i = new float[n];
+        var q = new float[n];
+        for (int k = 0; k < n; k++)
+        {
+            double angle = 2 * Math.PI * audioFreqHz * k / Fs;
+            i[k] = (float)Math.Cos(angle);
+            q[k] = upperSideband ? (float)Math.Sin(angle) : (float)(-Math.Sin(angle));
+        }
+        return new IqBlock(100_000_000, Fs, i, q);
+    }
+
+    /// <summary>A bare CW carrier (key-down, constant amplitude) sitting at a small frequency
+    /// offset from the tuned center -- i.e. the receiver isn't perfectly zero-beat on it, mirroring
+    /// realistic manual tuning. Represented as a slowly-rotating complex exponential.</summary>
+    private static IqBlock CwCarrier(double offsetHz, int n)
+    {
+        var i = new float[n];
+        var q = new float[n];
+        for (int k = 0; k < n; k++)
+        {
+            double angle = 2 * Math.PI * offsetHz * k / Fs;
+            i[k] = (float)Math.Cos(angle);
+            q[k] = (float)Math.Sin(angle);
+        }
+        return new IqBlock(100_000_000, Fs, i, q);
+    }
+
     /// <summary>Goertzel single-bin DFT energy at targetFreqHz for a PCM16LE mono buffer sampled at
     /// AudioRateHz. A real spectral test, not a "non-empty" placeholder.</summary>
     private static double GoertzelEnergy(byte[] pcm16, double targetFreqHz)
@@ -102,6 +135,76 @@ public class AudioDemodulatorTests
     }
 
     [Fact]
+    public void Usb_RecoversDominantAudioTone()
+    {
+        var block = SsbModulatedTone(audioFreqHz: 1000, n: 400_000, upperSideband: true);
+        var demod = new AudioDemodulator(AudioMode.Usb);
+
+        byte[] pcm = demod.Demodulate(block);
+        Assert.Equal(5000 * 2, pcm.Length);
+
+        double energy1k = GoertzelEnergy(pcm, 1000);
+        double energy3k = GoertzelEnergy(pcm, 3000);
+        double energy5k = GoertzelEnergy(pcm, 5000);
+
+        Assert.True(energy1k > 20 * energy3k, $"1kHz energy {energy1k} should dominate 3kHz energy {energy3k}");
+        Assert.True(energy1k > 20 * energy5k, $"1kHz energy {energy1k} should dominate 5kHz energy {energy5k}");
+    }
+
+    [Fact]
+    public void Lsb_RecoversDominantAudioTone()
+    {
+        var block = SsbModulatedTone(audioFreqHz: 1000, n: 400_000, upperSideband: false);
+        var demod = new AudioDemodulator(AudioMode.Lsb);
+
+        byte[] pcm = demod.Demodulate(block);
+        Assert.Equal(5000 * 2, pcm.Length);
+
+        double energy1k = GoertzelEnergy(pcm, 1000);
+        double energy3k = GoertzelEnergy(pcm, 3000);
+        double energy5k = GoertzelEnergy(pcm, 5000);
+
+        Assert.True(energy1k > 20 * energy3k, $"1kHz energy {energy1k} should dominate 3kHz energy {energy3k}");
+        Assert.True(energy1k > 20 * energy5k, $"1kHz energy {energy1k} should dominate 5kHz energy {energy5k}");
+    }
+
+    [Fact]
+    public void Cw_RecoversApproximately700HzTone()
+    {
+        // The carrier itself sits 20 Hz off the tuned center (imperfect zero-beat), so the fixed
+        // ~700 Hz BFO produces an audible tone at ~680 Hz -- close to, not exactly, 700 Hz.
+        var block = CwCarrier(offsetHz: 20, n: 400_000);
+        var demod = new AudioDemodulator(AudioMode.Cw);
+
+        byte[] pcm = demod.Demodulate(block);
+        Assert.Equal(5000 * 2, pcm.Length);
+
+        double energyTone = GoertzelEnergy(pcm, 680);
+        double energy100 = GoertzelEnergy(pcm, 100);
+        double energy3k = GoertzelEnergy(pcm, 3000);
+
+        Assert.True(energyTone > 20 * energy100, $"~700Hz tone energy {energyTone} should dominate 100Hz energy {energy100}");
+        Assert.True(energyTone > 20 * energy3k, $"~700Hz tone energy {energyTone} should dominate 3kHz energy {energy3k}");
+    }
+
+    [Theory]
+    [InlineData(AudioMode.Usb)]
+    [InlineData(AudioMode.Lsb)]
+    [InlineData(AudioMode.Cw)]
+    public void Ssb_Demodulate_IsDeterministic_AcrossIndependentInstances(AudioMode mode)
+    {
+        var block = mode == AudioMode.Cw
+            ? CwCarrier(20, 200_000)
+            : SsbModulatedTone(1000, 200_000, upperSideband: mode == AudioMode.Usb);
+
+        byte[] a = new AudioDemodulator(mode).Demodulate(block);
+        byte[] b = new AudioDemodulator(mode).Demodulate(block);
+
+        Assert.Equal(a, b);
+        Assert.NotEmpty(a);
+    }
+
+    [Fact]
     public void Demodulate_IsDeterministic_AcrossIndependentInstances()
     {
         var block = FmModulatedTone(1000, 15_000, 200_000);
@@ -129,6 +232,9 @@ public class AudioDemodulatorTests
     [InlineData(AudioMode.Wbfm)]
     [InlineData(AudioMode.Nbfm)]
     [InlineData(AudioMode.Am)]
+    [InlineData(AudioMode.Usb)]
+    [InlineData(AudioMode.Lsb)]
+    [InlineData(AudioMode.Cw)]
     public void Demodulate_BelowAudioRate_ReturnsEmpty_NoThrow(AudioMode mode)
     {
         var i = new float[] { 0.1f, 0.2f, 0.3f, -0.1f };
