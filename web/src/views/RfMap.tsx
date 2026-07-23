@@ -27,7 +27,15 @@ import Loading from "../components/Loading";
 import ErrorState from "../components/ErrorState";
 import { useColorMode } from "../theme/ColorModeContext";
 import { chartTokens, protocolColor, protocolLabels } from "../theme/palette";
-import { getEmitters, getDevices, usePolling, type Emitter, type Device } from "../api";
+import {
+  getEmitters,
+  getDevices,
+  getDeviceGeo,
+  getDeviceImage,
+  usePolling,
+  type Emitter,
+  type Device,
+} from "../api";
 import {
   emittersToGeoJSON,
   rfLayers,
@@ -58,6 +66,46 @@ import {
 
 const MAP_H = 480;
 
+const NOAA_APT_PROTOCOL = "NOAA-APT";
+
+/** Deterministic MapLibre source/layer id for a device's weather-overlay image (SPEC §8.4 Phase 2). */
+function aptOverlayId(deviceId: string): string {
+  return `apt-img-${deviceId}`;
+}
+
+/** Add the image source + raster layer for one device's weather overlay, above the basemap/graticule
+ * but below the emitter/aircraft point layers. Guarded so a duplicate add never throws. */
+function addWeatherOverlay(
+  map: MapLibreMap,
+  deviceId: string,
+  imageUrl: string,
+  corners: number[][],
+) {
+  const id = aptOverlayId(deviceId);
+  if (map.getSource(id) || map.getLayer(id)) return;
+  map.addSource(id, {
+    type: "image",
+    url: imageUrl,
+    coordinates: corners as [[number, number], [number, number], [number, number], [number, number]],
+  });
+  map.addLayer(
+    {
+      id,
+      type: "raster",
+      source: id,
+      paint: { "raster-opacity": 0.75 },
+    },
+    map.getLayer(RF_POINT_LAYER) ? RF_POINT_LAYER : undefined,
+  );
+}
+
+/** Remove one device's weather-overlay layer + source (no-op if absent). */
+function removeWeatherOverlay(map: MapLibreMap, deviceId: string) {
+  const id = aptOverlayId(deviceId);
+  if (map.getLayer(id)) map.removeLayer(id);
+  if (map.getSource(id)) map.removeSource(id);
+}
+
 function DetailRow({ label, value }: { label: string; value: React.ReactNode }) {
   return (
     <Box sx={{ display: "flex", justifyContent: "space-between", gap: 2 }}>
@@ -83,6 +131,9 @@ export default function RfMap() {
   const fittedRef = useRef(false);
   const [mapReady, setMapReady] = useState(false);
   const [heatmap, setHeatmap] = useState(false);
+  const [weather, setWeather] = useState(false);
+  // deviceId -> object URL for the currently-added weather overlays (so toggles/unmount can revoke).
+  const weatherOverlaysRef = useRef<Map<string, string>>(new Map());
   const [basemap, setBasemap] = useState<BasemapId>(defaultBasemapId());
   const [unplaceable, setUnplaceable] = useState(0);
   const [selected, setSelected] = useState<Emitter | null>(null);
@@ -171,6 +222,10 @@ export default function RfMap() {
       map.remove();
       mapRef.current = null;
       setMapReady(false);
+      // Revoke any outstanding weather-overlay object URLs — the map (and its sources) are gone,
+      // so there's nothing left to remove them from, but the blob URLs themselves would leak.
+      for (const url of weatherOverlaysRef.current.values()) URL.revokeObjectURL(url);
+      weatherOverlaysRef.current.clear();
     };
     // Init once — mode changes are handled by the paint/data effect below.
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -225,6 +280,53 @@ export default function RfMap() {
     }
   }, [basemap, mapReady]);
 
+  // Weather overlay: when ON, fetch geo quad + PNG for each NOAA-APT device and add an image
+  // source/raster layer; when OFF (or a device drops out of the device list), remove it + revoke
+  // its object URL. Devices already overlaid are left alone (no re-fetch on every poll tick).
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map || !mapReady) return;
+    let cancelled = false;
+    const overlays = weatherOverlaysRef.current;
+
+    const aptDevices = weather
+      ? (devices.data ?? []).filter((d) => d.protocol === NOAA_APT_PROTOCOL)
+      : [];
+    const wantedIds = new Set(aptDevices.map((d) => d.id));
+
+    // Drop overlays that are no longer wanted (toggle off, or the device disappeared).
+    for (const [id, url] of overlays) {
+      if (!wantedIds.has(id)) {
+        removeWeatherOverlay(map, id);
+        URL.revokeObjectURL(url);
+        overlays.delete(id);
+      }
+    }
+
+    if (weather) {
+      void (async () => {
+        for (const device of aptDevices) {
+          if (overlays.has(device.id)) continue;
+          const [quad, blob] = await Promise.all([
+            getDeviceGeo(device.id),
+            getDeviceImage(device.id),
+          ]);
+          if (cancelled) return;
+          // No TLE / no fix / no image yet — offline-degrading, simply no overlay for this device.
+          if (!quad || !blob) continue;
+          if (overlays.has(device.id) || !mapRef.current) continue;
+          const url = URL.createObjectURL(blob);
+          addWeatherOverlay(mapRef.current, device.id, url, quad.corners);
+          overlays.set(device.id, url);
+        }
+      })();
+    }
+
+    return () => {
+      cancelled = true;
+    };
+  }, [weather, devices.data, mapReady]);
+
   const placed = (data?.length ?? 0) - unplaceable;
   const positionedAircraft = (devices.data ?? []).filter(
     (d) =>
@@ -265,6 +367,16 @@ export default function RfMap() {
               />
             }
             label={<Typography variant="caption">Heatmap</Typography>}
+          />
+          <FormControlLabel
+            control={
+              <Switch
+                size="small"
+                checked={weather}
+                onChange={(e) => setWeather(e.target.checked)}
+              />
+            }
+            label={<Typography variant="caption">Weather overlay</Typography>}
           />
           <ProtocolLegend />
           <Box sx={{ display: "flex", alignItems: "center", gap: 0.5 }}>
