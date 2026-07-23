@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { bandPresets, activeBand } from "./bandPresets";
+import { bandPresets, activeBand, isNoaaAptBand, isMappingBand } from "./bandPresets";
 
 const KNOWN_KEYS = [
   "fm-broadcast",
@@ -83,5 +83,41 @@ describe("activeBand", () => {
 
   it("resolves the NOAA APT satellite band at 137.1 MHz", () => {
     expect(activeBand(137_100_000)?.key).toBe("noaa-apt");
+  });
+});
+
+describe("isNoaaAptBand", () => {
+  it("is true within [137, 138] MHz inclusive", () => {
+    expect(isNoaaAptBand(137_000_000)).toBe(true);
+    expect(isNoaaAptBand(137_100_000)).toBe(true);
+    expect(isNoaaAptBand(138_000_000)).toBe(true);
+  });
+
+  it("is false just outside the window, for unrelated bands, and for null", () => {
+    expect(isNoaaAptBand(136_999_999)).toBe(false);
+    expect(isNoaaAptBand(138_000_001)).toBe(false);
+    expect(isNoaaAptBand(1_090_000_000)).toBe(false);
+    expect(isNoaaAptBand(null)).toBe(false);
+  });
+});
+
+describe("isMappingBand", () => {
+  it("is true within the ADS-B 1090 MHz window", () => {
+    expect(isMappingBand(1_087_000_000)).toBe(true);
+    expect(isMappingBand(1_090_000_000)).toBe(true);
+    expect(isMappingBand(1_093_000_000)).toBe(true);
+  });
+
+  it("is true within the NOAA APT window", () => {
+    expect(isMappingBand(137_100_000)).toBe(true);
+  });
+
+  it("is false outside both windows and for null", () => {
+    expect(isMappingBand(1_086_999_999)).toBe(false);
+    expect(isMappingBand(1_093_000_001)).toBe(false);
+    expect(isMappingBand(136_999_999)).toBe(false);
+    expect(isMappingBand(138_000_001)).toBe(false);
+    expect(isMappingBand(98_000_000)).toBe(false);
+    expect(isMappingBand(null)).toBe(false);
   });
 });

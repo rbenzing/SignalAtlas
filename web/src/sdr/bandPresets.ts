@@ -203,3 +203,24 @@ export function activeBand(centerHz: number): BandPreset | null {
   }
   return best;
 }
+
+const ADSB_1090_LOW_HZ = 1_087_000_000;
+const ADSB_1090_HIGH_HZ = 1_093_000_000;
+const NOAA_APT_LOW_HZ = 137_000_000;
+const NOAA_APT_HIGH_HZ = 138_000_000;
+
+/** True when `freqHz` falls inside the NOAA APT weather-satellite window [137, 138] MHz — the
+ * only band that produces the map's weather-image overlay (SPEC §8.4 Phase 2). `null` (no active
+ * capture) is always false. */
+export function isNoaaAptBand(freqHz: number | null): boolean {
+  if (freqHz === null) return false;
+  return freqHz >= NOAA_APT_LOW_HZ && freqHz <= NOAA_APT_HIGH_HZ;
+}
+
+/** True when `freqHz` falls inside a mapping-relevant band — ADS-B 1090 MHz (aircraft contacts) or
+ * NOAA APT 137 MHz (weather imagery) — the only bands that produce contacts on the RF Map in this
+ * single-node build. `null` (no active capture) is always false. */
+export function isMappingBand(freqHz: number | null): boolean {
+  if (freqHz === null) return false;
+  return (freqHz >= ADSB_1090_LOW_HZ && freqHz <= ADSB_1090_HIGH_HZ) || isNoaaAptBand(freqHz);
+}
