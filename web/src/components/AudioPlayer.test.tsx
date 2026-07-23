@@ -106,4 +106,24 @@ describe("AudioPlayer with a tuned frequency", () => {
     expect(hoisted.setModeMock).not.toHaveBeenCalled();
     expect(hoisted.playMock).not.toHaveBeenCalled();
   });
+
+  it.each(["USB", "LSB", "CW"])("%s is selectable and drives the live player", async (label) => {
+    mockSdr(915_000_000);
+    render(<AudioPlayer />);
+    await userEvent.click(screen.getByRole("button", { name: /play/i }));
+    hoisted.playMock.mockClear();
+
+    await userEvent.click(screen.getByRole("button", { name: label }));
+
+    expect(hoisted.setModeMock).toHaveBeenCalledWith(label.toLowerCase());
+    expect(hoisted.playMock).not.toHaveBeenCalled();
+  });
+
+  it("Play starts the stream player with USB when USB is selected first", async () => {
+    mockSdr(915_000_000);
+    render(<AudioPlayer />);
+    await userEvent.click(screen.getByRole("button", { name: "USB" }));
+    await userEvent.click(screen.getByRole("button", { name: /play/i }));
+    expect(hoisted.playMock).toHaveBeenCalledWith("usb");
+  });
 });

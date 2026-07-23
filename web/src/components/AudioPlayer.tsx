@@ -18,6 +18,9 @@ const MODES: { value: AudioMode; label: string }[] = [
   { value: "wbfm", label: "WBFM" },
   { value: "nbfm", label: "NBFM" },
   { value: "am", label: "AM" },
+  { value: "usb", label: "USB" },
+  { value: "lsb", label: "LSB" },
+  { value: "cw", label: "CW" },
 ];
 
 /** RF Audio Player card (WS-D3, design doc §4): lets the operator LISTEN to the currently-tuned
@@ -92,9 +95,14 @@ export default function AudioPlayer() {
             value={mode}
             onChange={handleModeChange}
             aria-label="Demodulation mode"
+            sx={{ flexWrap: "wrap", gap: 0.5 }}
           >
             {MODES.map((m) => (
-              <ToggleButton key={m.value} value={m.value} sx={{ textTransform: "none", px: 1.5 }}>
+              <ToggleButton
+                key={m.value}
+                value={m.value}
+                sx={{ textTransform: "none", px: 1.5, borderRadius: "4px !important", border: "1px solid" }}
+              >
                 {m.label}
               </ToggleButton>
             ))}

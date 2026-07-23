@@ -12,7 +12,7 @@
  * envelope — never route it through `getEnvelope`/`api.ts` JSON helpers.
  */
 
-export type AudioMode = "wbfm" | "nbfm" | "am";
+export type AudioMode = "wbfm" | "nbfm" | "am" | "usb" | "lsb" | "cw";
 
 /** Bytes-per-sample for PCM16LE. */
 const BYTES_PER_SAMPLE = 2;

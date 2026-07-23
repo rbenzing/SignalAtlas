@@ -9,7 +9,7 @@ namespace SignalAtlas.Api;
 /// <summary>
 /// Binary WebSocket egress for the RF Audio Player (design §3). Mapped OUTSIDE /api/v1 -- ungated,
 /// loopback posture, alongside <c>/ingest/iq</c> and <c>/hub/live</c>. A text "config" frame
-/// <c>{ "mode": "wbfm"|"nbfm"|"am", "enabled": true|false }</c> sets the shared <see cref="AudioHub"/>'s
+/// <c>{ "mode": "wbfm"|"nbfm"|"am"|"usb"|"lsb"|"cw", "enabled": true|false }</c> sets the shared <see cref="AudioHub"/>'s
 /// active mode/enabled flag; the server then streams binary PCM16LE-mono frames (this connection's
 /// <see cref="AudioHub.Subscriber"/> queue) until the socket closes. A client may send further config
 /// frames at any time (e.g. switching mode while playing) -- config receipt and PCM send run as two
@@ -122,6 +122,9 @@ public static class AudioEndpoint
         "wbfm" => AudioMode.Wbfm,
         "nbfm" => AudioMode.Nbfm,
         "am" => AudioMode.Am,
+        "usb" => AudioMode.Usb,
+        "lsb" => AudioMode.Lsb,
+        "cw" => AudioMode.Cw,
         _ => null,
     };
 
