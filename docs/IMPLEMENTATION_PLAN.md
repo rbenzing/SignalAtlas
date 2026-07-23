@@ -1,8 +1,14 @@
 # Signal Atlas — Implementation Plan
 
-**Derives from:** [SPEC.md](SPEC.md) v3.3 (contract) · [plan.md](plan.md) (vision)
+**Derives from:** [SPEC.md](SPEC.md) v3.4 (contract)
 **Method:** TDD Red → Green → Refactor. No production code without a failing test first.
-**Status:** M0 in progress.
+**Status:** MVP (M0–M7) built; AI phases (M9/M12/M13) built with seamed stubs; hardware/sync ops (M8) partial. See **§7 Build Status (as-built)** below for the honest per-milestone record and the "next to add" list. The authoritative as-built matrix lives in [SPEC.md §19](SPEC.md#19-implementation-status-as-built).
+
+> **Per-feature working docs.** Incremental features built after M0 (WebUSB HackRF ingress,
+> ADS-B demodulator, band presets, ESRI basemap, NOAA APT phases, RF audio player, NL analyst)
+> each have a brainstorm spec + implementation plan under `docs/superpowers/` — these are kept
+> **locally only** (git-ignored working notes), not part of the committed contract. SPEC.md and
+> this file are canonical.
 
 ---
 
@@ -89,3 +95,44 @@ Parallelism rule: only dispatch independent tickets concurrently (no shared file
 ## 6. Definition of Done per milestone (SPEC §14)
 
 All Red-Green items checked; CI green incl. new tests; coverage gate met on `/Processing /Classification /Decode /Correlation`; demoable outcome runs from clean checkout; no verdict lacks evidence (P4/P6 contract green); relevant NFRs measured. M0–M12 DoD never depends on Claude/M13.
+
+---
+
+## 7. Build Status (as-built) — what's done, what's next
+
+Honest snapshot of the milestone roadmap (SPEC §10/§11) against the code on `main`. The
+full component-level matrix is [SPEC.md §19](SPEC.md#19-implementation-status-as-built); this
+is the milestone summary. Legend: ✅ built · ◑ partial (seam present, hardware/live-only piece
+deferred) · ○ not started.
+
+| M | Outcome | State | Notes |
+|---|---|---|---|
+| M0 | Walking skeleton: `.iq`→Collector→store→`GET /signals`→React list; receive-only + route-gated tests | ✅ | Encryption-at-rest test is Docker-lane only. |
+| M1 | PSD + features; occupancy + waterfall; coverage indicator | ✅ | Live Spectrum view + `/spectrum/*` endpoints. |
+| M2 | Protocol + confidence + evidence | ✅ | Rule scorer (`SignalAtlas.Classification`). |
+| M3 | All-protocol decode → devices w/ vendor | ◑ | Decoders operate on **frame bytes**; per-protocol IQ→bits demod deferred except **ADS-B** (live `AdsBDemodulator`) and **NOAA APT** (`AptDecoder`). |
+| M4 | Emitters via decoded IDs (+RF fallback) | ✅ | Correlation runs RF-only for non-demodulated live protocols. |
+| M5 | RF Map: heatmap + honest uncertainty | ◑ | Map + uncertainty + ADS-B contacts + NOAA weather overlay built; `/map/heatmap` endpoint not yet exposed. |
+| M6 | Behavior profiles; timeline replay | ◑ | Behavior engine built; `/replay` endpoint deferred. |
+| M7 | Alerts (incl. new_device) + `/summary` | ✅ | Alerts view + `/summary`. |
+| M8 | Real HackRF/GPS; retention; sync; backup/export; NFR soak; degrade | ◑ | **Browser WebUSB HackRF** ingress built (`/ingest/iq`); native SoapySDR source, `/sync/*`, `/export`, soak/NFR suites deferred (need device + Docker host). |
+| M9 | ML classification ≥95% w/ attribution + drift | ◑ | Pure-C# softmax classifier (`SignalAtlas.Ml`) behind `IClassifier`; ~0.97 on **synthetic** data. ONNX/GBM/CNN upgrade is the documented production step. |
+| M10 | Hardware re-ID + spoof detection | ◑ | `SignalAtlas.Fingerprint` seam present; reference-gated accuracy deferred (needs stable ref + field IQ). |
+| M11 | Activity forecasts + predicted-anomaly | ◑ | Behavior descriptive done; forecasting seam reserved. |
+| M12 | Grounded NL analyst (offline + Claude uplift) | ✅ | `OfflineAnalyst` + `/analyst/query` + **Analyst page** built. `CloudAnalyst` uses `StubClaudeClient` (live HTTP client deferred). |
+| M13 | Optional Claude enhancement (sessions/runs/enrichments) | ◑ | Backend built: `/sessions`, `/sessions/{id}/enhancement-candidates`, `/analysis/runs`, `/enrichments` + accept/reject. Claude client stubbed; **no enrichment UI yet**. |
+
+### Built beyond the original roadmap (incremental features)
+- **NOAA APT weather-satellite pipeline** — image decode (`AptDecoder`, in-memory only, invariant-#3 carve-out) + **Phase 2 georeference** (Vallado-validated near-Earth SGP4, Celestrak TLEs, `AptGeoReferencer`) → `GET /devices/{id}/geo` → weather-image quad overlay on the RF Map.
+- **RF Audio Player** — server-side demod (`AudioDemodulator`: WBFM/NBFM/AM/USB/LSB/CW, true phasing/Hilbert SSB) streamed over the ungated `/audio` WebSocket; replaces the Tune card on Live Spectrum.
+- **Context-aware RF Map** — Weather basemap (NOAA-gated) + ESRI Satellite/Street/Topo switcher; nav item disabled off mapping bands (`isMappingBand`).
+- **Live ADS-B** — real 8 MS/s streaming Mode S demod + CPR position → aircraft on the map.
+- **Demo-data gating** — all seed data behind `SeedDemoData` (default off): honest empty states, not synthetic filler.
+
+### Next to add (prioritized backlog)
+1. **Live `IClaudeClient` HTTP impl** — unlocks M12 cloud phrasing and the M13 enhancement pass (needs API key + network). Everything around it is wired.
+2. **Enrichment accept/reject UI** — surface the M13 `/enrichments` lifecycle in the web app (dormant until #1 lands).
+3. **Map/export/sync endpoints** — `/map/heatmap`, `/replay`, `/export` (GeoJSON/KML/CSV), `/sync/push` + `/sync/pull` (SPEC §9.2 gaps).
+4. **Native SoapySDR/HackRF source + per-protocol demodulators** — needs the physical device + field `.iq` captures (SPEC §4.1, landmine).
+5. **Docker-lane CI** — Postgres/Timescale round-trips, encryption-at-rest, retention (needs a Docker host).
+6. **ML production upgrade** — ONNX Runtime / GBM / CNN behind `IClassifier` to hit NFR-A2 on real signals.

@@ -125,13 +125,36 @@ anomaly) and live SignalR push. The protocol is a JSON `config` text frame (cent
 - **Scope:** like other live modes, this determines protocols but **not devices** (IQ→bits
   demodulation deferred — see §9).
 
-## 9. Known limits (this version)
+## 9. RF Audio Player (server-side demod)
+
+On the **Live Spectrum** page (replacing the old Tune card) the operator can listen to the tuned
+signal. The browser opens the **ungated `/audio` WebSocket**; the backend demodulates the live IQ
+and streams PCM audio back. Modes (`?mode=`): **wbfm** (broadcast FM), **nbfm** (narrowband FM /
+ham / marine / weather radio), **am** (airband), **usb** / **lsb** (SSB — true phasing/Hilbert, so
+the opposite sideband is genuinely rejected ~50 dB), **cw** (Morse, ~700 Hz BFO). Like other live
+paths the audio tap is **receive-only** and raw IQ is never persisted or forwarded (§8, egress
+guard in force).
+
+## 10. NL Spectrum Analyst
+
+The **Analyst** page issues grounded, cited Q&A over the stores via `POST /api/v1/analyst/query`.
+Offline (default) it runs the deterministic `OfflineAnalyst` (intent classification + templated,
+cited answers — no LLM), so it works fully offline and honestly returns "None found." when the
+stores are empty. Cloud phrasing (Claude) is wired behind the same engine but uses `StubClaudeClient`
+until a live `IClaudeClient` HTTP impl + API key are configured (see §2 `SignalAtlas:ClaudeApiKey`).
+
+## 11. Known limits (this version)
 
 - IQ→bits demodulation front-end is deferred (needs field `.iq` fixtures); live mode determines
   protocols but not devices until the demodulators land (exceptions: ADS-B and NOAA APT).
 - NOAA APT weather-satellite passes (137 MHz band) decode to a greyscale image served over the
   gated `GET /devices/{id}/image` and shown in the device drawer. Per the invariant-#3 carve-out
-  the image is **in-memory only** (never persisted or egressed); georeferenced map placement is a
-  deferred Phase 2.
+  the image is **in-memory only** (never persisted or egressed). **Georeference (Phase 2) is now
+  built**: near-Earth SGP4 propagation (Celestrak TLEs) places the image as an approximate quad
+  overlay on the RF Map via `GET /devices/{id}/geo`, shown when the map is on the **Weather**
+  basemap and tuned to the NOAA APT band.
+- Live **Claude** paths (analyst cloud phrasing, M13 enhancement pass) are stubbed — the platform
+  is complete with them disabled (AC-DA0). `/map/heatmap`, `/replay`, `/export`, and `/sync/*`
+  endpoints (SPEC §9.2) are not yet exposed.
 - Single-node only; multi-sensor fusion and RBAC are seamed but deferred (ADR-9).
 - Encryption-at-rest and Timescale hypertable behavior are verified only in the Docker CI lane.

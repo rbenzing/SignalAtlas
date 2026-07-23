@@ -100,3 +100,6 @@ Desktop.ini
 scratchpad/
 # Subagent-driven-development progress ledger (scratch).
 .superpowers/
+# Superpowers brainstorm/plan working docs — per-feature specs & plans kept locally,
+# not part of the committed contract (SPEC.md / IMPLEMENTATION_PLAN.md are canonical).
+docs/superpowers/

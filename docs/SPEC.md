@@ -1,10 +1,16 @@
 # Signal Atlas — Engineering Specification
 
-**Version:** 3.3
-**Status:** Buildable Spec — full platform, all gaps resolved, **claims independently verified (§18)** (derives from [plan.md](plan.md) vision v0.1)
+**Version:** 3.4
+**Status:** Buildable Spec — full platform, all gaps resolved, **claims independently verified (§18)**; **as-built status tracked in §19**
 **Methodology:** Test-Driven Development — Red / Green / Refactor
 **Audience:** AI implementation agents and human engineers
 
+> **v3.4:** Adds **§19 Implementation Status (as-built)** — an honest per-component record of what is
+> built on `main` vs. seamed/deferred, plus the prioritized "next to add" list. Records incremental
+> features shipped beyond the original roadmap: the **NOAA APT** decode + georeference (Phase 1 & 2,
+> §8.4), the **RF Audio Player** (server-side WBFM/NBFM/AM/USB/LSB/CW demod, §8.14), and the built-out
+> **NL analyst** (§8.12) with its web page. The contract in §1–§18 is unchanged; §19 is the reality check.
+>
 > **v3.0:** Every gap in the vision is now *resolved with a decision* (§3, §16 ADR log), not
 > left open. Resolutions added since v2: hybrid edge-first deployment, sensing/scan
 > strategy with honest detection-probability limits, power-calibration model, data-at-rest
@@ -30,7 +36,7 @@
 
 ## 0. How to read this document
 
-[plan.md](plan.md) is the *vision*. This document is the *contract*. Every feature is
+This document is the *contract*. Every feature is
 expressed as **testable behavior first**: no production code until a failing test (RED)
 describes the behavior; then minimum code to pass (GREEN); then improve design without
 changing behavior (REFACTOR). The test-list blocks are the authoritative work order.
@@ -44,7 +50,6 @@ Red-Green Backlog → component specs (§8) + data model (§7) as reference.
 
 | Field | Value |
 |---|---|
-| Vision source of truth | `plan.md` |
 | Build source of truth | `SPEC.md` (this file) |
 | Decision log | §16 ADR log (all prior open questions now decided) |
 | Change policy | Spec changes require a corresponding test change; no behavior ships untested |
@@ -54,7 +59,6 @@ Red-Green Backlog → component specs (§8) + data model (§7) as reference.
 ## 2. Scope
 
 ### 2.1 In scope — fully specified
-- **Foundation / MVP** (M0–M8): the 7-point success criteria in `plan.md`, end to end.
 - **Decode & Device ID** (M3): **all vision protocols in parallel** — Wi-Fi, BLE, LoRa, Zigbee, ADS-B, FM/RDS — demodulated to determine concrete devices.
 - **AI Phase 2 ML classification** (M9); **Phase 3 RF fingerprinting** (M10); **Phase 4 behavior prediction** (M11); **Phase 5 NL spectrum analyst** (M12).
 - **Deferred Claude analysis** (M13): collect RF in the field, then process a session **later with the Claude API** to better analyze and map — advisory, cited enrichments over the deterministic results.
@@ -82,7 +86,6 @@ The vision is directionally complete but not buildable as-is. Each gap below is 
 with a concrete decision** and a spec home. There are **no open questions** (§16 records the
 rationale for the forking ones).
 
-| # | Gap in `plan.md` | Decision (resolution) | Home |
 |---|---|---|---|
 | G1 | No concrete schemas | Full DDL + message contracts defined | §7 |
 | G2 | No quantified NFRs | Numeric thresholds + verifying test type for each | §5 |
@@ -553,6 +556,21 @@ persisted; AC-DA5 offline → run queued (not failed), executes on reconnect; AC
 enrichment eval passes citation check; AC-DA7 enhancement-candidate count computed without invoking Claude.
 **Test list (deterministic first):** [ ] **full E2E green with enhancement disabled (ML-only)** · [ ] enhancement-candidate count from edge data alone (no Claude) · [ ] tool layer assembles a session's intelligence correctly (no Claude) · [ ] egress payload excludes IQ + cleartext (assert) · [ ] empty-citation enrichment rejected (DB constraint) · [ ] enrichment never mutates target row (overlay) · [ ] accept/reject lifecycle · [ ] offline → queued, runs on reconnect · [ ] reclassification grounded in cited signal record · [ ] session report cites its sources (nightly eval)
 
+### 8.14 RF Audio Player — live listening (server-side demod)
+**Responsibility:** demodulate the live IQ stream to PCM audio for the operator to *listen* to the
+tuned signal (broadcast FM, ham, airband, SSB, CW). A monitoring aid — **receive-only** (§4.2 L1),
+raw IQ never persisted or egressed (the audio tap sits behind the same egress guard as the rest of
+the pipeline). **Metadata-not-content** posture is unchanged: this is analog listening for the
+operator at the edge, not payload capture/persistence.
+**Interface:** `AudioDemodulator` with `enum AudioMode { Wbfm, Nbfm, Am, Usb, Lsb, Cw }`; the
+browser opens the **ungated `/audio` WebSocket** (posture as `/ingest/iq`, §Operations) with a
+`?mode=` selector; PCM frames stream back. Demod is deterministic per block; SSB uses a **129-tap
+Blackman FIR Hilbert (phasing method)** so USB/LSB genuinely reject the opposite sideband (~50 dB),
+CW adds a ~700 Hz BFO.
+**Acceptance:** AC-AU1 each mode produces audio at the expected tone/sign (Goertzel spectral-peak
+tests); AC-AU2 USB and LSB reject the opposite sideband (not identical output); AC-AU3 no transmit
+path; AC-AU4 no IQ persisted/egressed.
+
 ---
 
 ## 9. API & Interface Contracts (G10, G16)
@@ -778,6 +796,59 @@ added). This log is the audit trail; the inline spec already reflects every corr
 
 ---
 
+## 19. Implementation Status (as-built)
+
+§1–§18 are the **contract** (the target). This section is the **reality check**: what is actually
+built on `main`, what is a deliberate seam, and what is next. It is descriptive, not aspirational —
+when it disagrees with the roadmap checkboxes in §10/§11, this section is the current truth.
+Legend: **✅ built** · **◑ partial** (seam present; hardware/live-only/cloud piece deferred) · **○ not started**.
+
+### 19.1 Components (§8) — as-built
+| Component | State | As-built notes |
+|---|---|---|
+| §8.1 Collector | ◑ | Scan/dwell + `Observation` emission built; **browser WebUSB HackRF** live source (`/ingest/iq`) built; native SoapySDR/HackRF source deferred (needs device). |
+| §8.2 Processing (DSP) | ✅ | FFT/occupancy/features; deterministic. |
+| §8.3 Classification (rules) | ✅ | Weighted-rule scorer behind `IClassifier`. |
+| §8.4 Decode & Device ID | ◑ | Decoders parse **frame bytes**; per-protocol IQ→bits demod deferred **except ADS-B** (live `AdsBDemodulator`) and **NOAA APT** (`AptDecoder`, in-memory image, invariant-#3 carve-out). Georeference (Phase 2) built: SGP4 + `AptGeoReferencer` → `/devices/{id}/geo`. |
+| §8.5 Correlation | ✅ | Decoded-ID-primary + RF fallback. Emitter temporal/BW scoring dormant (no persisted emitter state — see CLAUDE.md landmine #8). |
+| §8.6 Geospatial | ✅ | Centroid + honest uncertainty; RF Map renders it. `/map/heatmap` endpoint not yet exposed. |
+| §8.7 Behavior | ✅ | Descriptive profiles. |
+| §8.8 Anomaly | ✅ | Rule detectors incl. new_device. |
+| §8.9 ML classification (M9) | ◑ | Pure-C# softmax (`SignalAtlas.Ml`) behind `IClassifier`; ~0.97 on **synthetic** data. ONNX/GBM/CNN is the documented production upgrade for NFR-A2 on real signals. |
+| §8.10 Fingerprinting (M10) | ◑ | `SignalAtlas.Fingerprint` seam; reference-gated accuracy deferred (needs stable ref + field IQ). |
+| §8.11 Prediction (M11) | ◑ | Forecast seam reserved on the behavior engine. |
+| §8.12 NL Analyst (M12) | ✅ | `OfflineAnalyst` (intent + templated cited answers, no LLM) + `POST /analyst/query` + **Analyst web page**. `CloudAnalyst` wired but uses `StubClaudeClient`. |
+| §8.13 Claude enhancement (M13) | ◑ | Backend built: `/sessions`, `/sessions/{id}/enhancement-candidates`, `/analysis/runs`, `/enrichments` + accept/reject. `IClaudeClient` stubbed; **no enrichment UI**. Platform complete with it disabled (AC-DA0 holds). |
+| §8.14 RF Audio Player | ✅ | Server-side WBFM/NBFM/AM/USB/LSB/CW demod (true phasing SSB) over `/audio` WebSocket; Live Spectrum page. |
+
+### 19.2 API endpoints (§9.2) — as-built
+- **Built & gated (`/api/v1`):** `/signals` · `/devices` · `/devices/{id}/image` · `/devices/{id}/geo` ·
+  `/emitters` · `/emitters/{id}` · `/alerts` · `/summary` · `/spectrum/frames` · `/spectrum/occupancy` ·
+  `/spectrum/coverage` · `/analyst/query` · `/sessions` · `/sessions/{id}/enhancement-candidates` ·
+  `/analysis/runs` (+ `/{id}`) · `/enrichments` (+ accept/reject).
+- **Built & intentionally ungated:** `/health` · `/ready` · `/metrics` · `/hub/live` · `/ingest/iq` · `/audio`.
+- **Not yet exposed (SPEC §9.2 gaps):** `/emitters/{id}/fingerprint` · `/map/heatmap` · `/replay` ·
+  `/export` (GeoJSON/KML/CSV/JSON) · `/sync/push` · `/sync/pull` · `POST /alerts/{id}/ack`.
+
+### 19.3 Persistence & platform posture
+- **Persistence is Docker-optional:** EF Core + Postgres/Timescale when `ConnectionStrings:SignalAtlas`
+  is set, else **in-memory** repos. Demo/seed rows are gated behind `SeedDemoData` (default **off** →
+  honest empty states). Encryption-at-rest, hypertable behavior, and DB round-trips are verified only
+  in the **Docker CI lane** (`Category=NeedsDocker`).
+- **Prime invariants all enforced & tested:** receive-only (L1), explainable-only (P4/P6),
+  metadata-not-content (L2/L3, with the documented NOAA-APT in-memory carve-out), deterministic core
+  (P5), every `/api/v1` route auth-gated. See CLAUDE.md for the operative invariant list and landmines.
+
+### 19.4 Next to add (prioritized)
+1. **Live `IClaudeClient` HTTP impl** — unlocks §8.12 cloud phrasing + the §8.13 enhancement pass (needs API key + network).
+2. **Enrichment accept/reject UI** — surface the §8.13 lifecycle in the web app (dormant until #1).
+3. **Map/export/sync/ack endpoints** — the §9.2 gaps in §19.2.
+4. **Native SoapySDR/HackRF source + per-protocol demodulators** — needs the device + field `.iq` captures.
+5. **Docker-lane CI** — Postgres/Timescale, encryption-at-rest, retention (needs a Docker host).
+6. **ML production upgrade** — ONNX/GBM/CNN behind `IClassifier` toward NFR-A2 on real signals.
+
+---
+
 *End of specification. Every vision gap is resolved (§3, §16) and every checkable assumption is
-verified (§18). Entry point: §11 → M0, top item — write the RED test, watch it fail, make it GREEN,
-refactor, repeat.*
+verified (§18); §19 tracks what is built vs. next. Entry point for new work: §19.4, then the relevant
+component spec — write the RED test, watch it fail, make it GREEN, refactor, repeat.*

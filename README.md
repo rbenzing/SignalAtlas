@@ -220,7 +220,6 @@ Built test-first (RED → GREEN → REFACTOR).
 | Document | Purpose |
 |---|---|
 | [docs/SPEC.md](docs/SPEC.md) | The buildable engineering specification (the contract). |
-| [docs/plan.md](docs/plan.md) | The founder vision. |
 | [docs/IMPLEMENTATION_PLAN.md](docs/IMPLEMENTATION_PLAN.md) | Milestones, decisions, TDD approach. |
 | [docs/OPERATIONS.md](docs/OPERATIONS.md) | Deployment, config, health/metrics, backups, runbook. |
 | [LICENSE](LICENSE) | Proprietary license + responsible-use terms. |
