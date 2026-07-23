@@ -58,6 +58,26 @@ public class AudioDemodulatorTests
         return new IqBlock(100_000_000, Fs, i, q);
     }
 
+    /// <summary>Two simultaneous SSB tones in complex baseband: one strictly on the upper (positive
+    /// frequency) side of the suppressed carrier, one strictly on the lower (negative frequency) side --
+    /// I = cos(up) + cos(low), Q = sin(up) - sin(low), i.e. e^(j*2*pi*upperHz*t) + e^(-j*2*pi*lowerHz*t).
+    /// A true phasing-method demodulator must recover ONLY the tone on its selected side and reject the
+    /// other by a real margin; a plain coherent product detector (Re{(I+jQ)*e^-j*theta}) cannot -- it
+    /// passes both equally, which is exactly the bug this test exists to catch.</summary>
+    private static IqBlock TwoToneOppositeSidebands(double upperHz, double lowerHz, int n)
+    {
+        var i = new float[n];
+        var q = new float[n];
+        for (int k = 0; k < n; k++)
+        {
+            double up = 2 * Math.PI * upperHz * k / Fs;
+            double low = 2 * Math.PI * lowerHz * k / Fs;
+            i[k] = (float)(Math.Cos(up) + Math.Cos(low));
+            q[k] = (float)(Math.Sin(up) - Math.Sin(low));
+        }
+        return new IqBlock(100_000_000, Fs, i, q);
+    }
+
     /// <summary>A bare CW carrier (key-down, constant amplitude) sitting at a small frequency
     /// offset from the tuned center -- i.e. the receiver isn't perfectly zero-beat on it, mirroring
     /// realistic manual tuning. Represented as a slowly-rotating complex exponential.</summary>
@@ -166,6 +186,68 @@ public class AudioDemodulatorTests
 
         Assert.True(energy1k > 20 * energy3k, $"1kHz energy {energy1k} should dominate 3kHz energy {energy3k}");
         Assert.True(energy1k > 20 * energy5k, $"1kHz energy {energy1k} should dominate 5kHz energy {energy5k}");
+    }
+
+    // --- Sideband-rejection correctness gate: the whole point of the phasing/Hilbert upgrade.
+    // A coherent product detector recovers the SAME audio for Usb and Lsb on a clean signal (it can't
+    // tell the sidebands apart). A true phasing demodulator must select ONE side and reject the other
+    // by a real margin. Two simultaneous opposite-sideband tones make this unambiguous: whichever mode
+    // is under test must report the tone on ITS side dominating, and the other side's tone suppressed
+    // by >= ~20dB (a conservative gate -- a real phasing demod easily exceeds 30dB).
+
+    private const double RejectionGateDb = 20.0;
+
+    [Fact]
+    public void Usb_RejectsLowerSidebandTone_ByAtLeast20dB()
+    {
+        // +1200 Hz (upper/wanted) and -1800 Hz (lower/unwanted) simultaneously.
+        var block = TwoToneOppositeSidebands(upperHz: 1200, lowerHz: 1800, n: 400_000);
+        var demod = new AudioDemodulator(AudioMode.Usb);
+
+        byte[] pcm = demod.Demodulate(block);
+        Assert.Equal(5000 * 2, pcm.Length);
+
+        double wanted = GoertzelEnergy(pcm, 1200);
+        double rejected = GoertzelEnergy(pcm, 1800);
+        double rejectionDb = 10 * Math.Log10(wanted / rejected);
+
+        Console.WriteLine($"USB rejection of the lower sideband (1800 Hz vs wanted 1200 Hz): {rejectionDb:F1} dB");
+        Assert.True(wanted > rejected, $"USB should favor the upper (wanted) tone: wanted={wanted}, rejected={rejected}");
+        Assert.True(rejectionDb >= RejectionGateDb,
+            $"USB should reject the opposite (lower) sideband by >= {RejectionGateDb}dB, achieved {rejectionDb:F1}dB");
+    }
+
+    [Fact]
+    public void Lsb_RejectsUpperSidebandTone_ByAtLeast20dB()
+    {
+        // +1200 Hz (upper/unwanted) and -1800 Hz (lower/wanted) simultaneously.
+        var block = TwoToneOppositeSidebands(upperHz: 1200, lowerHz: 1800, n: 400_000);
+        var demod = new AudioDemodulator(AudioMode.Lsb);
+
+        byte[] pcm = demod.Demodulate(block);
+        Assert.Equal(5000 * 2, pcm.Length);
+
+        double wanted = GoertzelEnergy(pcm, 1800);
+        double rejected = GoertzelEnergy(pcm, 1200);
+        double rejectionDb = 10 * Math.Log10(wanted / rejected);
+
+        Console.WriteLine($"LSB rejection of the upper sideband (1200 Hz vs wanted 1800 Hz): {rejectionDb:F1} dB");
+        Assert.True(wanted > rejected, $"LSB should favor the lower (wanted) tone: wanted={wanted}, rejected={rejected}");
+        Assert.True(rejectionDb >= RejectionGateDb,
+            $"LSB should reject the opposite (upper) sideband by >= {RejectionGateDb}dB, achieved {rejectionDb:F1}dB");
+    }
+
+    [Fact]
+    public void Usb_And_Lsb_ProduceDifferentAudio_OnOppositeSidebandSignal()
+    {
+        // The direct proof that USB != LSB: on a signal with distinct content on each side, the two
+        // modes must not produce (near-)identical PCM, unlike the old coherent product detector.
+        var block = TwoToneOppositeSidebands(upperHz: 1200, lowerHz: 1800, n: 400_000);
+
+        byte[] usb = new AudioDemodulator(AudioMode.Usb).Demodulate(block);
+        byte[] lsb = new AudioDemodulator(AudioMode.Lsb).Demodulate(block);
+
+        Assert.NotEqual(usb, lsb);
     }
 
     [Fact]
