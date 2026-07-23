@@ -257,7 +257,10 @@ export default function RfMap() {
     if (!fittedRef.current && fitCoords.length > 0) {
       const bounds = new LngLatBounds();
       for (const c of fitCoords) bounds.extend(c);
-      map.fitBounds(bounds, { padding: 64, maxZoom: 16, duration: 0 });
+      // Cap the initial fit at ~city scale (5-10 km across at MAP_H=480) so a single/tight
+      // cluster of contacts doesn't zoom all the way to street level. The map's own min/maxZoom
+      // stay at MapLibre defaults so the user can still zoom fully in or out from here.
+      map.fitBounds(bounds, { padding: 64, maxZoom: 12, duration: 0 });
       fittedRef.current = true;
     }
   }, [data, devices.data, mode, mapReady]);
@@ -335,6 +338,13 @@ export default function RfMap() {
       Number.isFinite(d.latitude) &&
       Number.isFinite(d.longitude),
   ).length;
+  // Aircraft devices that exist (per Devices) but have no CPR position fix yet — correct behavior
+  // (they simply don't plot), but invisible/confusing without a callout (operator report: "3
+  // aircraft found in Devices, but only 1 shows on the map").
+  const aircraftDeviceCount = (devices.data ?? []).filter(
+    (d) => d.deviceType === "Aircraft" || d.protocol === "ADS-B",
+  ).length;
+  const unpositionedAircraft = Math.max(aircraftDeviceCount - positionedAircraft, 0);
   // Both feeds have returned at least once, neither errored, and nothing on the map has a fix.
   const feedsReady = data !== undefined && devices.data !== undefined;
   const feedError = error ?? devices.error;
@@ -407,24 +417,41 @@ export default function RfMap() {
             borderColor: "divider",
           }}
         />
-        {unplaceable > 0 && (
-          <Box
-            sx={{
-              position: "absolute",
-              top: 8,
-              left: 8,
-              px: 1,
-              py: 0.5,
-              borderRadius: 1,
-              bgcolor: "background.paper",
-              border: 1,
-              borderColor: "divider",
-            }}
-          >
-            <Typography variant="caption" color="text.secondary">
-              {unplaceable} unplaceable emitter{unplaceable === 1 ? "" : "s"}
-            </Typography>
-          </Box>
+        {(unplaceable > 0 || unpositionedAircraft > 0) && (
+          <Stack spacing={0.5} sx={{ position: "absolute", top: 8, left: 8 }}>
+            {unplaceable > 0 && (
+              <Box
+                sx={{
+                  px: 1,
+                  py: 0.5,
+                  borderRadius: 1,
+                  bgcolor: "background.paper",
+                  border: 1,
+                  borderColor: "divider",
+                }}
+              >
+                <Typography variant="caption" color="text.secondary">
+                  {unplaceable} unplaceable emitter{unplaceable === 1 ? "" : "s"}
+                </Typography>
+              </Box>
+            )}
+            {unpositionedAircraft > 0 && (
+              <Box
+                sx={{
+                  px: 1,
+                  py: 0.5,
+                  borderRadius: 1,
+                  bgcolor: "background.paper",
+                  border: 1,
+                  borderColor: "divider",
+                }}
+              >
+                <Typography variant="caption" color="text.secondary">
+                  {unpositionedAircraft} aircraft without a fix
+                </Typography>
+              </Box>
+            )}
+          </Stack>
         )}
         {/* Nothing has a location fix — tell the operator WHY the map is empty and what antenna/band
             is needed, rather than showing a blank plane (a common "wrong antenna / not tuned" case). */}
