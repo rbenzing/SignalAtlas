@@ -79,6 +79,12 @@ public static class IqIngressEndpoint
                 var pipeline = BuildPipeline(ctx.RequestServices, config.CollectorId ?? "web-hackrf-1");
                 runTask = Task.Run(() => pipeline.Run(source, ct), ct);
 
+                // Resolved once per connection: on a retune to a DIFFERENT center frequency, the
+                // previous band's transient RF data (emitters/signals/spectrum/alerts) is stale and
+                // gets cleared below. Devices/observations are persistent identity and are NOT
+                // ITransientStore, so they are never touched here.
+                var transientStores = ctx.RequestServices.GetServices<ITransientStore>();
+
                 long centerHz = config.CenterFreqHz;
                 int rateHz = config.SampleRateHz;
                 ReceiverConfig? rxConfig = ToReceiverConfig(config);
@@ -97,6 +103,15 @@ public static class IqIngressEndpoint
                         var updated = ParseConfig(data);
                         if (updated is not null)
                         {
+                            // A retune to a DIFFERENT center frequency: the previous band's transient
+                            // RF data is now stale and confusing, so clear it. A config frame that only
+                            // changes gain/other RX settings (same center) must NOT clear anything.
+                            if (updated.CenterFreqHz != centerHz)
+                            {
+                                foreach (var store in transientStores)
+                                    store.Clear();
+                            }
+
                             centerHz = updated.CenterFreqHz;
                             rateHz = updated.SampleRateHz;
                             rxConfig = ToReceiverConfig(updated);

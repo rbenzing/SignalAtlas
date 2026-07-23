@@ -152,6 +152,97 @@ public class IqIngressEndpointTests(WebApplicationFactory<Program> factory)
         return doc.RootElement.GetProperty("payload").GetArrayLength();
     }
 
+    private static string ConfigFrame(long centerFreqHz, int? vgaDb = null) => JsonSerializer.Serialize(new
+    {
+        type = "config",
+        centerFreqHz,
+        sampleRateHz = 2_000_000,
+        samplesPerBlock = 8,
+        collectorId = "web-hackrf-test",
+        vgaDb,
+    });
+
+    [Fact]
+    public async Task Streaming_RetuneToDifferentCenter_ClearsTransientData_ButKeepsDevices()
+    {
+        // Behavior fix: retuning to a DIFFERENT center frequency during a live capture must clear
+        // the previous band's transient RF data (emitters/signals/spectrum/alerts) — it's stale and
+        // confusing for the new band — but devices (persistent identity) and observations must NOT
+        // be cleared.
+        var app = factory.WithWebHostBuilder(b => { });
+        var client = app.CreateClient();
+
+        var wsClient = app.Server.CreateWebSocketClient();
+        var uri = new UriBuilder(app.Server.BaseAddress) { Scheme = "ws", Path = "/ingest/iq" }.Uri;
+        using var ws = await wsClient.ConnectAsync(uri, CancellationToken.None);
+
+        // Initial config frame (center A). This is the ONE-TIME trigger for
+        // ILiveSession.OnDeviceStreamStarted(), which clears any IDemoSeedStore data (SeedDemoData is
+        // off by default here, so it's a no-op) — so we deliberately seed the transient stores + a
+        // device AFTER this frame, not before, or that unrelated one-time clear would wipe them first.
+        await ws.SendAsync(Encoding.UTF8.GetBytes(ConfigFrame(915_000_000L)),
+            WebSocketMessageType.Text, true, CancellationToken.None);
+        await Task.Delay(150);
+
+        // Land data in every transient store directly via the shared singleton repos (mirrors how
+        // the live pipeline would populate them during the first band's capture), plus a device to
+        // prove it survives the retune.
+        var emitters = app.Services.GetRequiredService<IEmitterRepository>();
+        var signals = app.Services.GetRequiredService<ISignalWriter>();
+        var alerts = app.Services.GetRequiredService<IAlertWriter>();
+        var spectrum = app.Services.GetRequiredService<ISpectrumBuffer>();
+        var devices = app.Services.GetRequiredService<IDeviceRepository>();
+
+        emitters.Upsert(new Emitter(
+            Id: "emitter-retune-test", DeviceId: null, Protocol: "LoRa",
+            FreqCenterHz: 915_000_000, FreqStabilityHz: 5_000,
+            EstLatitude: 42.36, EstLongitude: -71.06, EstUncertaintyM: 100.0,
+            SignalCount: 1, Confidence: 0.8,
+            Identifiers: new Dictionary<string, string> { ["devaddr"] = "AABBCCDD" },
+            Evidence: [new EvidenceItem("modulation", "CSS", 0.5)]));
+        signals.Add(new Signal(
+            Id: 1, Time: DateTimeOffset.UtcNow, ObservationId: 1, EmitterId: null, DeviceId: null,
+            Protocol: "LoRa", Confidence: 0.8, Classifier: "test",
+            Evidence: [new EvidenceItem("modulation", "CSS", 0.5)],
+            CenterFreqHz: 915_000_000, BandwidthHz: 125_000, DurationMs: 350,
+            Features: new Dictionary<string, double>()));
+        alerts.Add(new Alert(
+            Id: Guid.NewGuid(), Time: DateTimeOffset.UtcNow, EmitterId: "emitter-retune-test",
+            DeviceId: null, Kind: Alert.NewEmitter, Severity: "info", Summary: "retune test",
+            Evidence: [new EvidenceItem("seed", "seed", 1.0)]));
+        spectrum.Push(new SpectrumFrame(DateTimeOffset.UtcNow, 915_000_000, 2_000_000, [1.0, 2.0, 3.0]));
+        devices.Upsert(new Device(
+            Id: "4840D6", DeviceType: "Aircraft", PrimaryIdentifier: "4840D6",
+            Identifiers: new Dictionary<string, string> { ["icao"] = "4840D6" }, Vendor: null,
+            Protocol: "ADS-B", Confidence: 1.0, Evidence: [new EvidenceItem("crc", "pass", 1.0)]));
+
+        Assert.True(await GetPayloadCount(client, "/api/v1/emitters") > 0);
+        Assert.True(await GetPayloadCount(client, "/api/v1/devices") > 0);
+
+        // Same-center config frame (gain-only change): must NOT clear anything.
+        await ws.SendAsync(Encoding.UTF8.GetBytes(ConfigFrame(915_000_000L, vgaDb: 30)),
+            WebSocketMessageType.Text, true, CancellationToken.None);
+        await Task.Delay(150);
+
+        Assert.True(await GetPayloadCount(client, "/api/v1/emitters") > 0, "gain-only config frame cleared data");
+        Assert.True(await GetPayloadCount(client, "/api/v1/signals") > 0);
+        Assert.True(await GetPayloadCount(client, "/api/v1/alerts") > 0);
+        Assert.True(await GetPayloadCount(client, "/api/v1/spectrum/frames") > 0);
+
+        // Retune to a DIFFERENT center: transient data must clear, devices must survive.
+        await ws.SendAsync(Encoding.UTF8.GetBytes(ConfigFrame(433_920_000L)),
+            WebSocketMessageType.Text, true, CancellationToken.None);
+        await Task.Delay(150);
+
+        Assert.Equal(0, await GetPayloadCount(client, "/api/v1/emitters"));
+        Assert.Equal(0, await GetPayloadCount(client, "/api/v1/signals"));
+        Assert.Equal(0, await GetPayloadCount(client, "/api/v1/alerts"));
+        Assert.Equal(0, await GetPayloadCount(client, "/api/v1/spectrum/frames"));
+        Assert.True(await GetPayloadCount(client, "/api/v1/devices") > 0, "devices must NOT be cleared on retune");
+
+        await ws.CloseAsync(WebSocketCloseStatus.NormalClosure, "done", CancellationToken.None);
+    }
+
     [Fact]
     public async Task Streaming_ImmediateClientClose_CompletesHandshakeGracefully()
     {

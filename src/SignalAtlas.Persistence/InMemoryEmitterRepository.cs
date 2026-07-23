@@ -10,7 +10,7 @@ namespace SignalAtlas.Persistence;
 /// Seeding is OFF by default — gated behind <c>seedDemo</c> (config key <c>SeedDemoData</c>, default
 /// false) so the offline UI shows honest empty state unless a developer opts in.
 /// </summary>
-public sealed class InMemoryEmitterRepository : IEmitterRepository, IDemoSeedStore
+public sealed class InMemoryEmitterRepository : IEmitterRepository, IDemoSeedStore, ITransientStore
 {
     private readonly Dictionary<string, Emitter> _emitters = new(StringComparer.Ordinal);
     // The live pipeline Upserts an emitter per block from its own thread while REST handlers call
@@ -95,6 +95,14 @@ public sealed class InMemoryEmitterRepository : IEmitterRepository, IDemoSeedSto
 
     /// <summary>Drop the seeded demo emitters so a connected device shows live emitters only.</summary>
     public void ClearDemoSeed()
+    {
+        lock (_sync)
+            _emitters.Clear();
+    }
+
+    /// <summary>Drop all emitters — used on retune (SPEC §8.1) so a new band starts clean. Devices are
+    /// persistent identity and are never cleared this way (see <see cref="ITransientStore"/>).</summary>
+    public void Clear()
     {
         lock (_sync)
             _emitters.Clear();

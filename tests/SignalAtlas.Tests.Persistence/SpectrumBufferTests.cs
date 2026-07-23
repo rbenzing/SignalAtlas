@@ -51,4 +51,18 @@ public class SpectrumBufferTests
 
         Assert.Single(buffer.Recent(64));
     }
+
+    [Fact]
+    public void Clear_EmptiesTheBuffer()
+    {
+        // ITransientStore.Clear() — used on retune (SPEC §8.1) so a new band's waterfall starts clean.
+        var buffer = new InMemorySpectrumBuffer(capacity: 8);
+        buffer.Push(Frame(1));
+        buffer.Push(Frame(2));
+        Assert.True(buffer.Recent(int.MaxValue).Count > 0);
+
+        ((ITransientStore)buffer).Clear();
+
+        Assert.Empty(buffer.Recent(int.MaxValue));
+    }
 }
