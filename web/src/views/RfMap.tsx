@@ -226,6 +226,17 @@ export default function RfMap() {
   }, [basemap, mapReady]);
 
   const placed = (data?.length ?? 0) - unplaceable;
+  const positionedAircraft = (devices.data ?? []).filter(
+    (d) =>
+      d.latitude !== null &&
+      d.longitude !== null &&
+      Number.isFinite(d.latitude) &&
+      Number.isFinite(d.longitude),
+  ).length;
+  // Both feeds have returned at least once, neither errored, and nothing on the map has a fix.
+  const feedsReady = data !== undefined && devices.data !== undefined;
+  const feedError = error ?? devices.error;
+  const noContacts = feedsReady && !feedError && placed === 0 && positionedAircraft === 0;
 
   return (
     <ChartCard
@@ -271,12 +282,7 @@ export default function RfMap() {
       }
     >
       {loading && !data && <Loading />}
-      {error && <ErrorState message={error} />}
-      {data && placed === 0 && (
-        <Typography variant="body2" color="text.secondary" sx={{ mb: 1 }}>
-          No placeable emitters to display.
-        </Typography>
-      )}
+      {feedError && <ErrorState message={feedError} />}
       <Box sx={{ position: "relative" }}>
         <Box
           ref={containerRef}
@@ -306,6 +312,58 @@ export default function RfMap() {
             <Typography variant="caption" color="text.secondary">
               {unplaceable} unplaceable emitter{unplaceable === 1 ? "" : "s"}
             </Typography>
+          </Box>
+        )}
+        {/* Nothing has a location fix — tell the operator WHY the map is empty and what antenna/band
+            is needed, rather than showing a blank plane (a common "wrong antenna / not tuned" case). */}
+        {noContacts && (
+          <Box
+            sx={{
+              position: "absolute",
+              inset: 0,
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+              p: 2,
+              pointerEvents: "none",
+            }}
+          >
+            <Box
+              sx={{
+                maxWidth: 440,
+                bgcolor: "background.paper",
+                border: 1,
+                borderColor: "divider",
+                borderRadius: 2,
+                p: 2.5,
+                opacity: 0.97,
+                boxShadow: 3,
+              }}
+            >
+              <Typography variant="subtitle2" gutterBottom>
+                No positioned contacts yet
+              </Typography>
+              <Typography variant="body2" color="text.secondary">
+                Nothing on the map has a location fix. Connect an antenna and tune the matching band
+                from the navbar to see contacts:
+              </Typography>
+              <Box component="ul" sx={{ pl: 2.5, my: 1, "& li": { mb: 0.5 } }}>
+                <Typography component="li" variant="caption" color="text.secondary">
+                  <b>Aircraft</b> (amber) — an <b>ADS-B 1090&nbsp;MHz</b> antenna; a dot appears once
+                  an even/odd position pair (CPR) is decoded.
+                </Typography>
+                <Typography component="li" variant="caption" color="text.secondary">
+                  <b>Emitters</b> — appear once RF fixes are correlated.
+                </Typography>
+                <Typography component="li" variant="caption" color="text.secondary">
+                  <b>Weather imagery</b> — a <b>NOAA APT 137&nbsp;MHz</b> antenna (shown in the device
+                  drawer).
+                </Typography>
+              </Box>
+              <Typography variant="caption" color="text.secondary">
+                Receiving on the wrong band or without an antenna will leave this map empty.
+              </Typography>
+            </Box>
           </Box>
         )}
         {attributionFor(basemap) && (
