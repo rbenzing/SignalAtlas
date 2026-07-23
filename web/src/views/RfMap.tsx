@@ -17,6 +17,7 @@ import Divider from "@mui/material/Divider";
 import Stack from "@mui/material/Stack";
 import FormControlLabel from "@mui/material/FormControlLabel";
 import Switch from "@mui/material/Switch";
+import Tooltip from "@mui/material/Tooltip";
 import ToggleButton from "@mui/material/ToggleButton";
 import ToggleButtonGroup from "@mui/material/ToggleButtonGroup";
 import CloseIcon from "@mui/icons-material/Close";
@@ -63,6 +64,8 @@ import {
   esriBasemaps,
   type BasemapId,
 } from "../lib/basemap";
+import { useSdr } from "../sdr/SdrProvider";
+import { isMappingBand, isNoaaAptBand } from "../sdr/bandPresets";
 
 const MAP_H = 480;
 
@@ -121,8 +124,14 @@ function DetailRow({ label, value }: { label: string; value: React.ReactNode }) 
 
 export default function RfMap() {
   const { mode } = useColorMode();
+  const { activeFreqHz } = useSdr();
   const { data, loading, error } = usePolling(getEmitters, 5000);
   const devices = usePolling(getDevices, 5000);
+
+  // The RF Map only has mapping use for the two bands that produce contacts in this single-node
+  // build (ADS-B aircraft, NOAA APT weather imagery) — tuned elsewhere, the map is disabled.
+  const mapping = isMappingBand(activeFreqHz);
+  const noaaActive = isNoaaAptBand(activeFreqHz);
 
   const containerRef = useRef<HTMLDivElement | null>(null);
   const mapRef = useRef<MapLibreMap | null>(null);
@@ -131,10 +140,12 @@ export default function RfMap() {
   const fittedRef = useRef(false);
   const [mapReady, setMapReady] = useState(false);
   const [heatmap, setHeatmap] = useState(false);
-  const [weather, setWeather] = useState(false);
   // deviceId -> object URL for the currently-added weather overlays (so toggles/unmount can revoke).
   const weatherOverlaysRef = useRef<Map<string, string>>(new Map());
   const [basemap, setBasemap] = useState<BasemapId>(defaultBasemapId());
+  // The "Weather" basemap doubles as the NOAA APT weather-image overlay toggle: selecting it
+  // activates the overlay effect below (no separate switch).
+  const weather = basemap === "weather";
   const [unplaceable, setUnplaceable] = useState(0);
   const [selected, setSelected] = useState<Emitter | null>(null);
   const [selectedAircraft, setSelectedAircraft] = useState<Device | null>(null);
@@ -142,9 +153,18 @@ export default function RfMap() {
   dataRef.current = data ?? [];
   aircraftRef.current = devices.data ?? [];
 
-  // Init the map once; add the source, layers, and interactions on load.
+  // If the operator tunes away from NOAA APT while "Weather" is active, that basemap option is
+  // about to become disabled — auto-switch to satellite so the map never sticks on a disabled mode.
   useEffect(() => {
-    if (!containerRef.current) return;
+    if (weather && !noaaActive) setBasemap("esri-imagery");
+  }, [weather, noaaActive]);
+
+  // Init the map only while tuned to a mapping-relevant band; add the source, layers, and
+  // interactions on load. Tearing down (map.remove()) when the operator tunes off-band avoids
+  // wasted tiles/animation for a map that isn't rendering anything useful, and re-inits cleanly
+  // when they tune back.
+  useEffect(() => {
+    if (!containerRef.current || !mapping) return;
     const map = new MapLibreMap({
       container: containerRef.current,
       // Offline blank plane by default; a real basemap iff VITE_BASEMAP_STYLE set.
@@ -227,9 +247,10 @@ export default function RfMap() {
       for (const url of weatherOverlaysRef.current.values()) URL.revokeObjectURL(url);
       weatherOverlaysRef.current.clear();
     };
-    // Init once — mode changes are handled by the paint/data effect below.
+    // Re-init only when the mapping-band gate flips — mode changes are handled by the
+    // paint/data effect below.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [mapping]);
 
   // Push data + re-theme when emitters or color mode change.
   useEffect(() => {
@@ -330,6 +351,33 @@ export default function RfMap() {
     };
   }, [weather, devices.data, mapReady]);
 
+  // Once RfMap is off the mapping bands entirely, render a disabled placeholder in place of the
+  // map below — do NOT compute/derive anything map-specific past this point.
+  if (!mapping) {
+    return (
+      <ChartCard title="RF Map">
+        <Box
+          sx={{
+            height: MAP_H,
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            borderRadius: 1,
+            border: 1,
+            borderColor: "divider",
+            bgcolor: "background.default",
+            p: 3,
+          }}
+        >
+          <Typography variant="body2" color="text.secondary" sx={{ textAlign: "center", maxWidth: 420 }}>
+            RF Map applies to ADS-B (1090 MHz) and NOAA APT (137 MHz). Tune one of those bands to
+            plot contacts.
+          </Typography>
+        </Box>
+      </ChartCard>
+    );
+  }
+
   const placed = (data?.length ?? 0) - unplaceable;
   const positionedAircraft = (devices.data ?? []).filter(
     (d) =>
@@ -362,11 +410,27 @@ export default function RfMap() {
             onChange={(_, v) => { if (v) setBasemap(v as BasemapId); }}
             aria-label="Basemap"
           >
-            {basemapLabels().map((b) => (
-              <ToggleButton key={b.id} value={b.id} sx={{ textTransform: "none", px: 1 }}>
-                {b.label}
-              </ToggleButton>
-            ))}
+            {basemapLabels().map((b) => {
+              const btn = (
+                <ToggleButton
+                  key={b.id}
+                  value={b.id}
+                  disabled={b.id === "weather" && !noaaActive}
+                  sx={{ textTransform: "none", px: 1 }}
+                >
+                  {b.label}
+                </ToggleButton>
+              );
+              // A disabled MUI button swallows pointer events, so a Tooltip on the button itself
+              // never shows — wrap it in a span so the title still surfaces on hover.
+              return b.id === "weather" && !noaaActive ? (
+                <Tooltip key={b.id} title="Tune to NOAA APT (137 MHz) to enable the weather overlay">
+                  <span>{btn}</span>
+                </Tooltip>
+              ) : (
+                btn
+              );
+            })}
           </ToggleButtonGroup>
           <FormControlLabel
             control={
@@ -377,16 +441,6 @@ export default function RfMap() {
               />
             }
             label={<Typography variant="caption">Heatmap</Typography>}
-          />
-          <FormControlLabel
-            control={
-              <Switch
-                size="small"
-                checked={weather}
-                onChange={(e) => setWeather(e.target.checked)}
-              />
-            }
-            label={<Typography variant="caption">Weather overlay</Typography>}
           />
           <ProtocolLegend />
           <Box sx={{ display: "flex", alignItems: "center", gap: 0.5 }}>

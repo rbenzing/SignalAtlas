@@ -66,10 +66,10 @@ export function resolveBaseStyle(mode: ColorMode): string | StyleSpecification {
   return blankStyle(mode);
 }
 
-export type BasemapId = "offline" | "esri-imagery" | "esri-street" | "esri-topo";
+export type BasemapId = "weather" | "esri-imagery" | "esri-street" | "esri-topo";
 
 export interface EsriBasemap {
-  id: Exclude<BasemapId, "offline">;
+  id: Exclude<BasemapId, "weather">;
   label: string;
   sourceId: string;
   layerId: string;
@@ -136,27 +136,31 @@ export function rasterSourcesAndLayers(): { sourceId: string; source: RasterSour
   }));
 }
 
-/** Switcher options: Offline first, then the three ESRI basemaps. */
+/** Switcher options: Weather first (blank offline plane + graticule, also the base for the NOAA
+ *  APT weather-image overlay — SPEC §8.4 Phase 2), then the three ESRI basemaps. */
 export function basemapLabels(): { id: BasemapId; label: string }[] {
-  return [{ id: "offline" as BasemapId, label: "Offline" }, ...ESRI_BASEMAPS.map((b) => ({ id: b.id as BasemapId, label: b.label }))];
+  return [{ id: "weather" as BasemapId, label: "Weather" }, ...ESRI_BASEMAPS.map((b) => ({ id: b.id as BasemapId, label: b.label }))];
 }
 
 /**
  * Default basemap. Online-first: with NO `VITE_BASEMAP_STYLE` set the map opens on the ESRI
- * satellite imagery (the operator is assumed online); "Offline" (blank + graticule) stays one click
- * away in the switcher. If `VITE_BASEMAP_STYLE` names an ESRI id, that id is the default. If it is a
- * real style URL (e.g. a bundled `pmtiles://` vector basemap) we default to "offline" so the ESRI
- * raster layers stay hidden and that configured style shows through — a genuinely offline/air-gapped
- * deployment therefore just sets `VITE_BASEMAP_STYLE` to its bundled style (or "offline" is one click).
+ * satellite imagery (the operator is assumed online); "Weather" (blank + graticule, the base the
+ * NOAA APT overlay renders on) stays one click away in the switcher. If `VITE_BASEMAP_STYLE` names
+ * an ESRI id, that id is the default. If it is a real style URL (e.g. a bundled `pmtiles://` vector
+ * basemap) we default to "weather" so the ESRI raster layers stay hidden and that configured style
+ * shows through — a genuinely offline/air-gapped deployment therefore just sets `VITE_BASEMAP_STYLE`
+ * to its bundled style (or "weather" is one click). The underlying blank-plane rendering is
+ * unchanged from the old "offline" option — only the label/id (and its NOAA-gated overlay meaning
+ * in RfMap.tsx) changed.
  */
 export function defaultBasemapId(): BasemapId {
   const v = (import.meta.env.VITE_BASEMAP_STYLE as string | undefined)?.trim();
   if (!v) return "esri-imagery"; // online-first default: satellite
   const match = ESRI_BASEMAPS.find((b) => b.id === v);
-  return match ? match.id : "offline"; // a real style URL → let it show; raster switcher stays off
+  return match ? match.id : "weather"; // a real style URL → let it show; raster switcher stays off
 }
 
-/** Attribution text for the active basemap, or null for offline. */
+/** Attribution text for the active basemap, or null for weather (blank offline plane). */
 export function attributionFor(id: BasemapId): string | null {
   return ESRI_BASEMAPS.find((b) => b.id === id)?.attribution ?? null;
 }

@@ -23,6 +23,8 @@ import MenuIcon from "@mui/icons-material/Menu";
 import DarkModeIcon from "@mui/icons-material/DarkMode";
 import LightModeIcon from "@mui/icons-material/LightMode";
 import { useColorMode } from "../theme/ColorModeContext";
+import { useSdr } from "../sdr/SdrProvider";
+import { isMappingBand } from "../sdr/bandPresets";
 import ConnectionDot from "./ConnectionDot";
 import SummaryChip from "./SummaryChip";
 import HackRfConnect from "./HackRfConnect";
@@ -32,7 +34,9 @@ const DRAWER_WIDTH = 220;
 const NAV = [
   { label: "Dashboard", path: "/", icon: <DashboardIcon /> },
   { label: "Live Spectrum", path: "/spectrum", icon: <GraphicEqIcon /> },
-  { label: "RF Map", path: "/map", icon: <MapIcon /> },
+  // Mapping-gated: the RF Map has no use (no contacts to plot) unless the tuned frequency is
+  // ADS-B 1090 MHz or NOAA APT 137 MHz — see `mapOnly` handling below.
+  { label: "RF Map", path: "/map", icon: <MapIcon />, mapOnly: true },
   { label: "Emitters", path: "/emitters", icon: <CellTowerIcon /> },
   { label: "Devices", path: "/devices", icon: <DevicesIcon /> },
   { label: "Alerts", path: "/alerts", icon: <NotificationsIcon /> },
@@ -41,25 +45,32 @@ const NAV = [
 export default function AppShell({ children }: { children: React.ReactNode }) {
   const theme = useTheme();
   const { mode, toggle } = useColorMode();
+  const { activeFreqHz } = useSdr();
   const isDesktop = useMediaQuery(theme.breakpoints.up("md"));
   const [mobileOpen, setMobileOpen] = useState(false);
   const location = useLocation();
+  const mapEnabled = isMappingBand(activeFreqHz);
 
   const navList = (
     <List>
-      {NAV.map((item) => (
-        <ListItem key={item.path} disablePadding>
-          <ListItemButton
-            component={RouterLink}
-            to={item.path}
-            selected={location.pathname === item.path}
-            onClick={() => setMobileOpen(false)}
-          >
-            <ListItemIcon sx={{ minWidth: 40 }}>{item.icon}</ListItemIcon>
-            <ListItemText primary={item.label} />
-          </ListItemButton>
-        </ListItem>
-      ))}
+      {NAV.map((item) => {
+        const disabled = Boolean(item.mapOnly) && !mapEnabled;
+        return (
+          <ListItem key={item.path} disablePadding>
+            <ListItemButton
+              // Disabled: render as a plain (non-navigable) button — no RouterLink/`to`, so it
+              // can't be reached by click or keyboard while the tuned band has no mapping use.
+              {...(disabled ? {} : { component: RouterLink, to: item.path })}
+              disabled={disabled}
+              selected={location.pathname === item.path}
+              onClick={() => setMobileOpen(false)}
+            >
+              <ListItemIcon sx={{ minWidth: 40 }}>{item.icon}</ListItemIcon>
+              <ListItemText primary={item.label} />
+            </ListItemButton>
+          </ListItem>
+        );
+      })}
     </List>
   );
 

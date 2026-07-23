@@ -34,15 +34,15 @@ describe("ESRI basemap registry", () => {
     }
   });
 
-  it("lists Offline first then the three ESRI labels", () => {
+  it("lists Weather first then the three ESRI labels", () => {
     const labels = basemapLabels();
-    expect(labels[0]).toEqual({ id: "offline", label: "Offline" });
-    expect(labels.map((l) => l.id)).toEqual(["offline", "esri-imagery", "esri-street", "esri-topo"]);
+    expect(labels[0]).toEqual({ id: "weather", label: "Weather" });
+    expect(labels.map((l) => l.id)).toEqual(["weather", "esri-imagery", "esri-street", "esri-topo"]);
   });
 
   it("defaults to ESRI satellite when unconfigured (online-first) and reports attribution per basemap", () => {
     expect(defaultBasemapId()).toBe("esri-imagery"); // VITE_BASEMAP_STYLE unset → online-first satellite default
-    expect(attributionFor("offline")).toBeNull();
+    expect(attributionFor("weather")).toBeNull();
     expect(attributionFor("esri-imagery")).not.toBeNull();
   });
 });
@@ -60,5 +60,6 @@ describe("VITE_BASEMAP_STYLE handling", () => {
   it("still passes a real custom style URL through", () => {
     vi.stubEnv("VITE_BASEMAP_STYLE", "/basemap.json");
     expect(configuredBasemapStyle()).toBe("/basemap.json");
+    expect(defaultBasemapId()).toBe("weather"); // real style shows through; raster switcher stays off
   });
 });
