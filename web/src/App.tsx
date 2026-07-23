@@ -6,6 +6,7 @@ import RfMap from "./views/RfMap";
 import Emitters from "./views/Emitters";
 import Devices from "./views/Devices";
 import Alerts from "./views/Alerts";
+import Analyst from "./views/Analyst";
 
 export default function App() {
   return (
@@ -18,6 +19,7 @@ export default function App() {
           <Route path="/emitters" element={<Emitters />} />
           <Route path="/devices" element={<Devices />} />
           <Route path="/alerts" element={<Alerts />} />
+          <Route path="/analyst" element={<Analyst />} />
         </Routes>
       </AppShell>
     </BrowserRouter>

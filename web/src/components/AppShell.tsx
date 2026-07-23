@@ -19,6 +19,7 @@ import MapIcon from "@mui/icons-material/Map";
 import CellTowerIcon from "@mui/icons-material/CellTower";
 import DevicesIcon from "@mui/icons-material/Devices";
 import NotificationsIcon from "@mui/icons-material/Notifications";
+import PsychologyIcon from "@mui/icons-material/Psychology";
 import MenuIcon from "@mui/icons-material/Menu";
 import DarkModeIcon from "@mui/icons-material/DarkMode";
 import LightModeIcon from "@mui/icons-material/LightMode";
@@ -40,6 +41,7 @@ const NAV = [
   { label: "Emitters", path: "/emitters", icon: <CellTowerIcon /> },
   { label: "Devices", path: "/devices", icon: <DevicesIcon /> },
   { label: "Alerts", path: "/alerts", icon: <NotificationsIcon /> },
+  { label: "Analyst", path: "/analyst", icon: <PsychologyIcon /> },
 ];
 
 export default function AppShell({ children }: { children: React.ReactNode }) {
