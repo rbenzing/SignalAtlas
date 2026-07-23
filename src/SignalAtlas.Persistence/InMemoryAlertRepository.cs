@@ -11,7 +11,7 @@ namespace SignalAtlas.Persistence;
 /// Seeding is OFF by default — gated behind <c>seedDemo</c> (config key <c>SeedDemoData</c>, default
 /// false) so the offline UI shows honest empty state unless a developer opts in.
 /// </summary>
-public sealed class InMemoryAlertRepository : IAlertRepository, IAlertWriter, IDemoSeedStore
+public sealed class InMemoryAlertRepository : IAlertRepository, IAlertWriter, IDemoSeedStore, ITransientStore
 {
     /// <summary>Retained-alert cap — recent alerts for the API without unbounded growth.</summary>
     public const int Capacity = 500;
@@ -74,6 +74,14 @@ public sealed class InMemoryAlertRepository : IAlertRepository, IAlertWriter, ID
 
     /// <summary>Drop the demo seed so a connected device shows live alerts only.</summary>
     public void ClearDemoSeed()
+    {
+        lock (_sync)
+            _alerts.Clear();
+    }
+
+    /// <summary>Drop all alerts — used on retune (SPEC §8.1) so a new band starts clean. Devices are
+    /// persistent identity and are never cleared this way (see <see cref="ITransientStore"/>).</summary>
+    public void Clear()
     {
         lock (_sync)
             _alerts.Clear();

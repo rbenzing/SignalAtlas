@@ -67,6 +67,63 @@ public class InMemoryRepositoriesTests
     }
 
     [Fact]
+    public void Signals_Clear_EmptiesTheStore()
+    {
+        // ITransientStore.Clear() — used on retune (SPEC §8.1) so a new band starts clean.
+        var repo = new InMemorySignalRepository(seedDemo: true);
+        repo.Add(Sig(1));
+        Assert.True(repo.Count() > 0);
+
+        ((ITransientStore)repo).Clear();
+
+        Assert.Equal(0, repo.Count());
+    }
+
+    [Fact]
+    public void Emitters_Clear_EmptiesTheStore()
+    {
+        var repo = new InMemoryEmitterRepository(seedDemo: true);
+        Assert.True(repo.All().Count > 0);
+
+        ((ITransientStore)repo).Clear();
+
+        Assert.Empty(repo.All());
+    }
+
+    [Fact]
+    public void Alerts_Clear_EmptiesTheStore()
+    {
+        var repo = new InMemoryAlertRepository(new StubAnomalyEngine(), seedDemo: true);
+        Assert.True(repo.GetAlerts().Count > 0);
+
+        ((ITransientStore)repo).Clear();
+
+        Assert.Empty(repo.GetAlerts());
+    }
+
+    private sealed class StubAnomalyEngine : IAnomalyEngine
+    {
+        public IReadOnlyList<Alert> Evaluate(AnomalyEvent evt, EmitterBaseline baseline) =>
+        [
+            new Alert(Guid.NewGuid(), evt.Time, evt.EmitterId, evt.DeviceId, Alert.NewEmitter, "info",
+                "seed", [new EvidenceItem("seed", "seed", 1.0)])
+        ];
+    }
+
+    [Fact]
+    public void DeviceRepository_DoesNotImplementITransientStore()
+    {
+        // Devices are persistent identity (SPEC/CLAUDE.md): retune-clear must NEVER touch them.
+        Assert.False(typeof(InMemoryDeviceRepository).IsAssignableTo(typeof(ITransientStore)));
+    }
+
+    [Fact]
+    public void ObservationRepository_DoesNotImplementITransientStore()
+    {
+        Assert.False(typeof(InMemoryObservationRepository).IsAssignableTo(typeof(ITransientStore)));
+    }
+
+    [Fact]
     public void Observations_AreBounded_AndReturnNewestFirst()
     {
         var repo = new InMemoryObservationRepository();
