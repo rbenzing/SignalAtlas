@@ -3,8 +3,10 @@ import {
   getPaged,
   getDeviceImage,
   getDeviceGeo,
+  postAnalystQuery,
   type ApiEnvelope,
   type AptGeoQuad,
+  type AnalystAnswer,
   type Signal,
 } from "./api";
 
@@ -122,5 +124,39 @@ describe("getDeviceGeo", () => {
     vi.stubGlobal("fetch", vi.fn().mockResolvedValue({ ok: false, status: 404 }));
 
     await expect(getDeviceGeo("dev-1")).resolves.toBeNull();
+  });
+});
+
+describe("postAnalystQuery", () => {
+  it("posts the question and resolves the unwrapped payload", async () => {
+    const answer: AnalystAnswer = {
+      text: "Aircraft N12345 last seen 2 minutes ago.",
+      citations: [{ feature: "device", value: "dev-1", weight: 1 }],
+      mode: "offline",
+      queryType: "WhatChanged",
+    };
+    const fetchMock = vi.fn().mockResolvedValue(
+      envelopeResponse<AnalystAnswer>({
+        schemaVersion: "v1",
+        correlationId: "11111111-1111-1111-1111-111111111111",
+        payload: answer,
+      }),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    const result = await postAnalystQuery("What changed today?");
+
+    expect(fetchMock).toHaveBeenCalledWith("/api/v1/analyst/query", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ text: "What changed today?" }),
+    });
+    expect(result).toEqual(answer);
+  });
+
+  it("throws when the response is not ok", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue({ ok: false, status: 400 } as Response));
+
+    await expect(postAnalystQuery("")).rejects.toThrow(/400/);
   });
 });

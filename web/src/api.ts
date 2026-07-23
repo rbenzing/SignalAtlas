@@ -170,6 +170,26 @@ export async function getDeviceGeo(id: string): Promise<AptGeoQuad | null> {
   }
 }
 
+/** Grounded answer from the NL analyst (SPEC §7/8 — deterministic offline by default). */
+export interface AnalystAnswer {
+  text: string;
+  citations: EvidenceItem[];
+  mode: string;
+  queryType: string;
+}
+
+/** POST a natural-language question to the analyst and return the unwrapped answer. */
+export async function postAnalystQuery(text: string): Promise<AnalystAnswer> {
+  const resp = await fetch(`${BASE}/api/v1/analyst/query`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ text }),
+  });
+  if (!resp.ok) throw new Error(`POST /analyst/query failed: ${resp.status}`);
+  const env = (await resp.json()) as ApiEnvelope<AnalystAnswer>;
+  return env.payload;
+}
+
 /** Ungated health probe — not enveloped. Returns true when reachable + ok. */
 export async function getHealth(): Promise<boolean> {
   try {
