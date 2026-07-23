@@ -150,6 +150,26 @@ export async function getDeviceImage(id: string): Promise<Blob | null> {
   return resp.blob();
 }
 
+/** Approximate georeference quad for a decoded NOAA APT pass (SPEC §8.4 Phase 2). */
+export interface AptGeoQuad {
+  /** 4 [lon,lat] corner pairs, ordered TL, TR, BR, BL. */
+  corners: number[][];
+  approximate: boolean;
+}
+
+/**
+ * Fetch a device's approximate geo quad (e.g. NOAA APT overlay corners). Returns null on 404/none
+ * (no TLE / no fix) so a missing overlay never breaks the map — `getEnvelope` throws on !ok, so
+ * that's caught here rather than propagated.
+ */
+export async function getDeviceGeo(id: string): Promise<AptGeoQuad | null> {
+  try {
+    return await getEnvelope<AptGeoQuad>(`/devices/${encodeURIComponent(id)}/geo`);
+  } catch {
+    return null;
+  }
+}
+
 /** Ungated health probe — not enveloped. Returns true when reachable + ok. */
 export async function getHealth(): Promise<boolean> {
   try {

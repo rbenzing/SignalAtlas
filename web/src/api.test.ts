@@ -1,5 +1,12 @@
 import { describe, it, expect, vi, afterEach } from "vitest";
-import { getPaged, getDeviceImage, type ApiEnvelope, type Signal } from "./api";
+import {
+  getPaged,
+  getDeviceImage,
+  getDeviceGeo,
+  type ApiEnvelope,
+  type AptGeoQuad,
+  type Signal,
+} from "./api";
 
 function envelopeResponse<T>(env: ApiEnvelope<T>): Response {
   return {
@@ -83,5 +90,37 @@ describe("getDeviceImage", () => {
 
     vi.stubGlobal("fetch", vi.fn().mockResolvedValue({ ok: false, status: 404 }));
     expect(await getDeviceImage("a")).toBeNull();
+  });
+});
+
+describe("getDeviceGeo", () => {
+  it("returns the quad payload on 200", async () => {
+    const quad: AptGeoQuad = {
+      corners: [
+        [1, 2],
+        [3, 4],
+        [5, 6],
+        [7, 8],
+      ],
+      approximate: true,
+    };
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue(
+        envelopeResponse<AptGeoQuad>({
+          schemaVersion: "v1",
+          correlationId: "11111111-1111-1111-1111-111111111111",
+          payload: quad,
+        }),
+      ),
+    );
+
+    expect(await getDeviceGeo("dev-1")).toEqual(quad);
+  });
+
+  it("returns null on 404 (no TLE / no fix) instead of throwing", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue({ ok: false, status: 404 }));
+
+    await expect(getDeviceGeo("dev-1")).resolves.toBeNull();
   });
 });
