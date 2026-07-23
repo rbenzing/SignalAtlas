@@ -67,6 +67,8 @@ export default defineConfig({
       "/hub": backendProxy(true),
       // Browser WebUSB HackRF IQ ingress — websocket, needs ws:true for the upgrade.
       "/ingest": backendProxy(true),
+      // RF Audio Player — ungated PCM16LE audio stream, websocket, needs ws:true for the upgrade.
+      "/audio": backendProxy(true),
     },
   },
 });

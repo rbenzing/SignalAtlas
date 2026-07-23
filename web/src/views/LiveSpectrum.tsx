@@ -17,17 +17,12 @@ import Loading from "../components/Loading";
 import ErrorState from "../components/ErrorState";
 import Waterfall from "../components/Waterfall";
 import PowerScaleLegend from "../components/PowerScaleLegend";
-import CoverageStrip from "../components/CoverageStrip";
+import AudioPlayer from "../components/AudioPlayer";
 import ChartTooltip from "../components/ChartTooltip";
 import { useColorMode } from "../theme/ColorModeContext";
 import { chartTokens, powerRamp } from "../theme/palette";
 import { powerRange, toMhz } from "../lib/spectrum";
-import {
-  getSpectrumFrames,
-  getSpectrumOccupancy,
-  getSpectrumCoverage,
-  usePolling,
-} from "../api";
+import { getSpectrumFrames, getSpectrumOccupancy, usePolling } from "../api";
 import { useLive } from "../live/LiveProvider";
 
 const WATERFALL_H = 320;
@@ -39,7 +34,6 @@ export default function LiveSpectrum() {
 
   const frames = usePolling(getSpectrumFrames, 1500);
   const occupancy = usePolling(getSpectrumOccupancy, 2000);
-  const coverage = usePolling(getSpectrumCoverage, 5000);
 
   // Prefer the live push buffer (animates in real time); fall back to polled
   // frames when the hub buffer is empty.
@@ -154,11 +148,7 @@ export default function LiveSpectrum() {
         </Grid>
 
         <Grid size={{ xs: 12, md: 4 }}>
-          <ChartCard title="Coverage">
-            {coverage.loading && !coverage.data && <Loading />}
-            {coverage.error && <ErrorState message={coverage.error} />}
-            {coverage.data && <CoverageStrip bands={coverage.data} />}
-          </ChartCard>
+          <AudioPlayer />
         </Grid>
       </Grid>
     </Box>
