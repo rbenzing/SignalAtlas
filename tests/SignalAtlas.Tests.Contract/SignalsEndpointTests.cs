@@ -7,7 +7,10 @@ namespace SignalAtlas.Tests.Contract;
 public class SignalsEndpointTests(WebApplicationFactory<Program> factory)
     : IClassFixture<WebApplicationFactory<Program>>
 {
-    private readonly WebApplicationFactory<Program> _factory = factory;
+    // GetSignals_EverySignalHasNonEmptyEvidence asserts the SEEDED signal is present — opt in to
+    // demo seeding explicitly (SeedDemoData defaults false since the product no longer seeds by default).
+    private readonly WebApplicationFactory<Program> _factory =
+        factory.WithWebHostBuilder(b => b.UseSetting("SeedDemoData", "true"));
 
     // M0-T5 — GET /signals returns the versioned envelope {schemaVersion, correlationId, payload}.
     [Fact]

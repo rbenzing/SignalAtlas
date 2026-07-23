@@ -7,7 +7,10 @@ namespace SignalAtlas.Tests.Contract;
 public class DevicesEndpointTests(WebApplicationFactory<Program> factory)
     : IClassFixture<WebApplicationFactory<Program>>
 {
-    private readonly WebApplicationFactory<Program> _factory = factory;
+    // This contract test asserts the SEEDED aircraft is present — opt in to demo seeding explicitly
+    // (SeedDemoData defaults false since the product no longer seeds by default).
+    private readonly WebApplicationFactory<Program> _factory =
+        factory.WithWebHostBuilder(b => b.UseSetting("SeedDemoData", "true"));
 
     // M3 — GET /devices returns the versioned envelope and a device determined via the real
     // decode→resolve path (SPEC §8.4, §9.2).

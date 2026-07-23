@@ -39,8 +39,8 @@ public class LiveSessionTests
     [Fact]
     public void InMemoryStores_ClearDemoSeed_EmptiesThem()
     {
-        var signals = new InMemorySignalRepository();      // seeded with 1
-        var emitters = new InMemoryEmitterRepository();     // seeded with 3
+        var signals = new InMemorySignalRepository(seedDemo: true);      // seeded with 1
+        var emitters = new InMemoryEmitterRepository(seedDemo: true);     // seeded with 3
         Assert.NotEmpty(signals.GetSignals(10));
         Assert.NotEmpty(emitters.All());
 

@@ -7,7 +7,10 @@ namespace SignalAtlas.Tests.Contract;
 public class SummaryAndAlertsEndpointTests(WebApplicationFactory<Program> factory)
     : IClassFixture<WebApplicationFactory<Program>>
 {
-    private readonly WebApplicationFactory<Program> _factory = factory;
+    // These contract tests assert SEEDED alerts/counts are present — opt in to demo seeding
+    // explicitly (SeedDemoData defaults false since the product no longer seeds by default).
+    private readonly WebApplicationFactory<Program> _factory =
+        factory.WithWebHostBuilder(b => b.UseSetting("SeedDemoData", "true"));
 
     // M7 — GET /alerts returns anomaly alerts produced by the real engine (SPEC §8.8, §9.2).
     [Fact]

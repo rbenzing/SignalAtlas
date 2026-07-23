@@ -66,7 +66,7 @@ public sealed class PerformanceHardeningTests
     [Fact]
     public void SignalRepository_Count_ReturnsCountAfterAdds()
     {
-        var repo = new InMemorySignalRepository(); // seeded with 1
+        var repo = new InMemorySignalRepository(seedDemo: true); // seeded with 1
         repo.Add(Sig(10, DateTimeOffset.UnixEpoch.AddSeconds(10)));
         repo.Add(Sig(20, DateTimeOffset.UnixEpoch.AddSeconds(20)));
 
