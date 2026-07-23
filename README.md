@@ -1,40 +1,72 @@
 # Signal Atlas
 
-**A living, explainable map of the radio spectrum.** Signal Atlas is a receive-only
-RF intelligence platform: it observes RF activity with an SDR, classifies signals,
-decodes device identity, correlates emitters, estimates locations, learns behavior,
-detects anomalies, and presents it all as an intuitive map + spectral UI — fully
-offline-capable on a field laptop.
+<div align="center">
+
+[![License: Proprietary](https://img.shields.io/badge/License-Proprietary-blue.svg)](LICENSE)
+[![.NET](https://img.shields.io/badge/.NET-10.0+-512BD4?logo=dotnet)](https://dotnet.microsoft.com)
+[![Node.js](https://img.shields.io/badge/Node.js-18+-339933?logo=node.js)](https://nodejs.org)
+[![TypeScript](https://img.shields.io/badge/TypeScript-5.0+-3178C6?logo=typescript)](https://www.typescriptlang.org)
+[![C#](https://img.shields.io/badge/C%23-12+-239120?logo=csharp)](https://learn.microsoft.com/en-us/dotnet/csharp)
+[![React](https://img.shields.io/badge/React-18+-61DAFB?logo=react)](https://react.dev)
+[![Docker Ready](https://img.shields.io/badge/Docker-Ready-2496ED?logo=docker)](https://www.docker.com)
+
+**A living, explainable map of the radio spectrum.**
+
+Signal Atlas is a receive-only RF intelligence platform: it observes RF activity with an SDR, classifies signals, decodes device identity, correlates emitters, estimates locations, learns behavior, detects anomalies, and presents it all as an intuitive map + spectral UI — fully offline-capable on a field laptop.
+
+[Features](#features) • [Quick Start](#quick-start) • [Documentation](#documentation) • [Architecture](#architecture)
+
+</div>
+
+---
 
 > © 2026 Russell Benzing. All Rights Reserved. Proprietary — see [LICENSE](LICENSE).
-> Receive-only, metadata-not-content, lawful-use-only (see LICENSE §4 and [SPEC.md](docs/SPEC.md) §4.2).
+>
+> **Receive-only, metadata-not-content, lawful-use-only** (see LICENSE §4 and [SPEC.md](docs/SPEC.md) §4.2).
+
+---
+
+## Features
+
+- 🗺️ **Intuitive Map UI** – Geolocate emitters with uncertainty visualization
+- 📊 **Live Spectrum** – Real-time waterfall and occupancy analysis
+- 🤖 **Intelligent Classification** – Rule-based + ML classifiers (M9) for protocol identification
+- 🔍 **Signal Correlation** – Smart emitter grouping across multiple observations
+- 🎯 **Anomaly Detection** – Rule-based and behavioral anomaly detectors
+- 📋 **Device Resolution** – Protocol decode + fingerprinting (M10) + device identity
+- 🌐 **Browser WebUSB** – Capture live from HackRF directly in Chrome/Edge (no server-side SDR required)
+- 💾 **Offline-First** – In-memory storage with optional Postgres/TimescaleDB persistence
+- 📡 **RF Fingerprinting** – Spoof detection and behavior profiles (M6, M11)
+- 🧠 **Analyst Mode** – Dual-mode NL analyst (M12) — offline deterministic + Claude integration
+- ⚡ **SignalR Live Push** – Real-time updates over WebSockets
+- 🎓 **Fully Explainable** – Every verdict carries evidence; uncertainty always surfaced
 
 ---
 
 ## Prerequisites
 
-| Tool | Version | Needed for |
+| Tool | Version | Purpose |
 |---|---|---|
-| .NET SDK | **10.0+** | backend + tests |
-| Node.js | **18+** (npm 10+) | frontend |
-| Docker | any recent | *optional* — Postgres/TimescaleDB deployment + the DB test lane |
-| HackRF + SoapySDR | — | *optional* — real RF capture (else file/synthetic sources) |
+| **.NET SDK** | **10.0+** | Backend + tests |
+| **Node.js** | **18+** (npm 10+) | Frontend |
+| **Docker** | any recent | *Optional* – Postgres/TimescaleDB + DB tests |
+| **HackRF + SoapySDR** | — | *Optional* – Real RF capture |
 
-No database, Docker, or SDR is required to run and explore the app — it falls back
-to in-memory storage and seeded/synthetic data.
+> **No database, Docker, or SDR is required.** The app falls back to in-memory storage with seeded/synthetic data.
 
 ---
 
-## Quick start (offline dev — two processes)
+## Quick Start
 
-**1. Backend API** (listens on `http://localhost:5285`):
+### 1️⃣ Backend API
+Start the .NET API (listens on `http://localhost:5285`):
 
 ```bash
 dotnet run --project src/SignalAtlas.Api
 ```
 
-**2. Frontend** (in a second terminal — dev server on `http://localhost:5173`,
-proxies `/api` and `/hub` to the backend):
+### 2️⃣ Frontend
+In a new terminal, start the React dev server (on `http://localhost:5173`, proxies `/api` and `/hub` to backend):
 
 ```bash
 cd web
@@ -42,130 +74,149 @@ npm install
 npm run dev
 ```
 
-Open **http://localhost:5173**. With no connection string configured the API uses
-in-memory seeded data, so the Dashboard, Live Spectrum (waterfall), RF Map,
-Emitters, Devices, and Alerts views all show data immediately.
+Open **http://localhost:5173** — the Dashboard, Live Spectrum, RF Map, Emitters, Devices, and Alerts views all load with in-memory seeded data.
 
-### See live data flow through the pipeline
+---
 
-Start the API with the ingestion loop enabled to stream a synthetic (or file/HackRF)
-source through classify → correlate → anomaly → persist, pushing live updates over
-SignalR:
+### See Live Data Flow
 
+Start the API with the ingestion loop enabled to stream synthetic (or file/HackRF) data through classify → correlate → anomaly → persist, with live SignalR updates:
+
+**Bash:**
 ```bash
-# bash
 Ingestion__Enabled=true dotnet run --project src/SignalAtlas.Api
 ```
+
+**PowerShell:**
 ```powershell
-# PowerShell
 $env:Ingestion__Enabled="true"; dotnet run --project src/SignalAtlas.Api
 ```
 
-Point it at a captured `.iq` file with `Ingestion__IqFile=/path/to/capture.iq`
-(interleaved signed-8-bit I/Q, HackRF format). A real HackRF is auto-detected when
-present; otherwise it uses a bounded synthetic source.
-
-### Live capture from a browser HackRF (WebUSB)
-
-No server-side SDR? Plug a **HackRF One** into the machine running the browser and
-capture straight from the UI. In the top navbar, click **Connect HackRF** and pick the
-device in the browser's WebUSB permission prompt. The browser reads IQ over WebUSB and
-streams it to the API over a binary WebSocket (`/ingest/iq`); the backend runs the same
-classify → correlate → anomaly pipeline and pushes the live waterfall/occupancy over
-SignalR. The radio is **receive-only** (no transmit path exists) and raw IQ never leaves
-the edge — only spectra/features are produced. Tune center freq / sample rate / gains /
-bias-tee from the navbar popover (the RX config is recorded as capture provenance); a
-previously-authorized device reconnects on load without re-prompting. Connecting adopts the
-radio **idle** — it does not scan until you pick a frequency from the band selector — and a
-**Stop** button halts scanning while keeping the device connected (ready for a new frequency).
-
-Requirements: a WebUSB browser (**Chrome or Edge**) and the API running (so the Vite proxy
-reaches `/ingest/iq` on 5285). On **Windows**, install the WinUSB driver for the HackRF with
-[Zadig](https://zadig.akeo.ie/) (Options → List All Devices → HackRF One → replace driver
-with WinUSB), otherwise it enumerates as a COM port and the chooser is empty. Like live
-file/synthetic mode, this classifies protocols but **defers device determination** (the
-IQ→bits demodulators are a separate seam). See [OPERATIONS.md](docs/OPERATIONS.md) §8.
-
----
-
-## Run from your IDE
-
-### VS Code
-Open the repo folder. Recommended extensions (C# Dev Kit, ESLint, Prettier) are
-prompted from [.vscode/extensions.json](.vscode/extensions.json). Then use the
-**Run and Debug** panel:
-
-- **Full stack: API + Web** — one click starts the API (with debugger) *and* the
-  Vite dev server; open http://localhost:5173.
-- **API** / **API (live ingestion)** — run just the backend (the live variant sets
-  `Ingestion__Enabled=true`).
-- **Web dev server** — just the frontend.
-
-Run `web: install` once from **Terminal → Run Task** (or `npm install` in `web/`)
-before the first web launch. Build/test tasks (`build`, `test (no docker)`,
-`web: build`) are also under Run Task.
-
-### Visual Studio (2022 17.10+ for `.slnx`)
-Open **`SignalAtlas.slnx`**. Set **SignalAtlas.Api** as the startup project, pick a
-profile from the Run dropdown — **API** or **API (live ingestion)** — and press F5.
-The frontend runs alongside it from a terminal: `cd web && npm install && npm run dev`,
-then browse to http://localhost:5173 (it proxies to the API on 5285).
-
----
-
-## Running with a database (optional, Docker)
-
-For persistent Postgres/TimescaleDB storage and the full edge bundle:
-
+Point at a captured `.iq` file:
 ```bash
-docker compose up --build      # Timescale + API on a named volume
-docker compose down            # stop; data persists in signalatlas-data
+Ingestion__IqFile=/path/to/capture.iq dotnet run --project src/SignalAtlas.Api
 ```
 
-Or run the API against your own Postgres by setting the connection string — the API
-selects EF Core + Postgres when it's present, in-memory otherwise:
+*(Interleaved signed-8-bit I/Q, HackRF format. Real HackRF auto-detected when present; otherwise uses bounded synthetic source.)*
+
+---
+
+### Live Browser Capture with HackRF (WebUSB)
+
+**No server-side SDR?** Plug a **HackRF One** into your machine and capture live from the browser:
+
+1. Click **Connect HackRF** in the navbar
+2. Select the device in the browser's WebUSB permission prompt
+3. Browser reads IQ over WebUSB, streams to API over binary WebSocket (`/ingest/iq`)
+4. Backend runs classify → correlate → anomaly pipeline, pushes live waterfall/occupancy over SignalR
+
+**Features:**
+- Receive-only (no transmit path)
+- Raw IQ never leaves the edge — only spectra/features produced
+- Tune center freq / sample rate / gains / bias-tee from navbar popover
+- RX config recorded as capture provenance
+- Previously-authorized device auto-reconnects without re-prompting
+
+**Requirements:**
+- WebUSB browser (**Chrome** or **Edge**)
+- API running (so Vite proxy reaches `/ingest/iq`)
+- **Windows:** Install WinUSB driver via [Zadig](https://zadig.akeo.ie/) (Options → List All Devices → HackRF One → replace with WinUSB)
+
+See [OPERATIONS.md](docs/OPERATIONS.md) §8 for more.
+
+---
+
+## Run from Your IDE
+
+### VS Code
+
+Open the repo folder. Recommended extensions (C# Dev Kit, ESLint, Prettier) are auto-prompted from [.vscode/extensions.json](.vscode/extensions.json).
+
+Use the **Run and Debug** panel:
+
+- **Full stack: API + Web** — Starts API (with debugger) + Vite dev server → http://localhost:5173
+- **API** / **API (live ingestion)** — Backend only (`Ingestion__Enabled=true` for live variant)
+- **Web dev server** — Frontend only
+
+Run `web: install` from **Terminal → Run Task** (or `npm install` in `web/`) once before first web launch.
+
+Build/test tasks (`build`, `test (no docker)`, `web: build`) also in Run Task.
+
+### Visual Studio (2022 17.10+ for `.slnx`)
+
+Open **`SignalAtlas.slnx`**. Set **SignalAtlas.Api** as startup project, pick a profile (**API** or **API (live ingestion)**), press F5.
+
+Run the frontend in a terminal:
+```bash
+cd web && npm install && npm run dev
+```
+
+Then browse to http://localhost:5173 (proxies to API on 5285).
+
+---
+
+## Database & Deployment
+
+### With Docker (Postgres/TimescaleDB)
+
+For persistent storage and full edge bundle:
+
+```bash
+docker compose up --build      # Timescale + API on named volume
+docker compose down            # Stop; data persists in signalatlas-data
+```
+
+### Custom Postgres Connection
+
+Set the connection string — API auto-selects EF Core + Postgres when present, in-memory otherwise:
 
 ```bash
 ConnectionStrings__SignalAtlas="Host=localhost;Database=signalatlas;Username=postgres;Password=..." \
   dotnet run --project src/SignalAtlas.Api
 ```
 
-See **[OPERATIONS.md](docs/OPERATIONS.md)** for run modes, configuration keys, secrets,
-health/metrics, backup/restore, retention, and the failure playbook.
+See **[OPERATIONS.md](docs/OPERATIONS.md)** for run modes, config keys, secrets, health/metrics, backup/restore, retention, and the failure playbook.
 
 ---
 
-## Tests
+## Testing
 
 ```bash
-# Full suite minus the Docker-dependent lane (runs everywhere):
+# Full suite (minus Docker-dependent lane — runs everywhere):
 dotnet test SignalAtlas.slnx --filter "Category!=NeedsDocker"
 
-# Docker lane (needs a Docker host): Postgres/Timescale round-trip, hypertables:
+# Docker lane (Postgres/Timescale round-trip, hypertables):
 dotnet test SignalAtlas.slnx --filter "Category=NeedsDocker"
 
 # Frontend build / type-check:
 cd web && npm run build
 ```
 
-CI ([.github/workflows/ci.yml](.github/workflows/ci.yml)) runs the fast lane, a
-Docker lane, and a coverage gate (≥85% line on the core + AI projects).
+CI ([.github/workflows/ci.yml](.github/workflows/ci.yml)) runs the fast lane, Docker lane, and coverage gate (≥85% line on core + AI projects).
 
 ---
 
-## Key endpoints
+## API Overview
 
-REST is under `/api/v1` (versioned envelope `{schemaVersion, correlationId, payload}`,
-RFC 7807 problem-details, gated by the single-operator authorization seam). Live
-push is over the SignalR hub `/hub/live`.
+REST API is versioned under `/api/v1` with envelope schema `{schemaVersion, correlationId, payload}`, RFC 7807 problem-details, and single-operator authorization.
 
-`GET /signals` · `GET /devices` · `GET /emitters[/{id}]` · `GET /alerts` ·
-`GET /summary` · `GET /spectrum/frames|occupancy|coverage` ·
-`POST /analyst/query` · `GET /sessions` · `POST /analysis/runs` ·
-`GET /enrichments` + accept/reject · `GET /health` · `GET /ready` · `GET /metrics`.
+### Key Endpoints
 
-Browser WebUSB HackRF IQ ingress is the un-gated binary WebSocket `/ingest/iq`
-(mapped outside `/api/v1`, alongside `/hub/live`; see [OPERATIONS.md](docs/OPERATIONS.md) §8).
+| Endpoint | Purpose |
+|---|---|
+| `GET /signals` | List detected RF signals |
+| `GET /devices` | Enumerated devices with identity |
+| `GET /emitters[/{id}]` | Correlated emitters + geolocation |
+| `GET /alerts` | Anomalies and alerts |
+| `GET /summary` | Dashboard aggregates |
+| `GET /spectrum/frames\|occupancy\|coverage` | Spectral data |
+| `POST /analyst/query` | NL analyst queries (M12) |
+| `GET /sessions` | Capture sessions |
+| `POST /analysis/runs` | Trigger analysis runs |
+| `GET /enrichments` | Pending enrichments (accept/reject) |
+| `GET /health` · `GET /ready` · `GET /metrics` | Observability |
+
+**Browser WebUSB:** Binary WebSocket `/ingest/iq` (outside `/api/v1`, alongside `/hub/live`) for HackRF IQ ingress.
 
 ---
 
@@ -173,53 +224,62 @@ Browser WebUSB HackRF IQ ingress is the un-gated binary WebSocket `/ingest/iq`
 
 ```
 src/
-  SignalAtlas.Domain          entities, value objects, interfaces (no deps)
-  SignalAtlas.Collector       scan collector, sample sources (File/Synthetic/HackRF)
-  SignalAtlas.Processing      DSP: FFT, PSD, occupancy, features
-  SignalAtlas.Classification  rule-based classifier
-  SignalAtlas.Ml              M9 ML classifier (behind IClassifier)
-  SignalAtlas.Decode          protocol decoders + device resolver
-  SignalAtlas.Correlation     emitter correlation
-  SignalAtlas.Fingerprint     M10 RF/PHY fingerprinting + spoof detection
-  SignalAtlas.Geospatial      centroid + uncertainty
-  SignalAtlas.Behavior        behavior profiles (M6) + prediction (M11)
-  SignalAtlas.Anomaly         rule-based anomaly detectors
-  SignalAtlas.Analyst         M12 dual-mode NL analyst (offline + Claude seam)
-  SignalAtlas.Enhancement     M13 optional Claude enhancement (cited overlay)
-  SignalAtlas.Pipeline        live ingestion orchestrator
-  SignalAtlas.Persistence     EF Core (Postgres/Timescale) + in-memory repos
-  SignalAtlas.Api             Minimal API, SignalR hub, auth/observability
-web/                          React + TS + MUI + MapLibre + Recharts UI
-tests/                        unit · contract · integration(Docker) · persistence
+  SignalAtlas.Domain          ← Entities, value objects, interfaces (no deps)
+  SignalAtlas.Collector       ← Scan collector, sample sources (File/Synthetic/HackRF)
+  SignalAtlas.Processing      ← DSP: FFT, PSD, occupancy, features
+  SignalAtlas.Classification  ← Rule-based classifier
+  SignalAtlas.Ml              ← M9 ML classifier (behind IClassifier)
+  SignalAtlas.Decode          ← Protocol decoders + device resolver
+  SignalAtlas.Correlation     ← Emitter correlation
+  SignalAtlas.Fingerprint     ← M10 RF/PHY fingerprinting + spoof detection
+  SignalAtlas.Geospatial      ← Centroid + uncertainty
+  SignalAtlas.Behavior        ← Behavior profiles (M6) + prediction (M11)
+  SignalAtlas.Anomaly         ← Rule-based anomaly detectors
+  SignalAtlas.Analyst         ← M12 dual-mode NL analyst (offline + Claude seam)
+  SignalAtlas.Enhancement     ← M13 optional Claude enhancement (cited overlay)
+  SignalAtlas.Pipeline        ← Live ingestion orchestrator
+  SignalAtlas.Persistence     ← EF Core (Postgres/Timescale) + in-memory repos
+  SignalAtlas.Api             ← Minimal API, SignalR hub, auth/observability
+web/                          ← React + TS + MUI + MapLibre + Recharts UI
+tests/                        ← Unit · Contract · Integration (Docker) · Persistence
 ```
 
-**Principles:** receive-only; explainable-only (every verdict carries evidence);
-offline-first; deterministic core; honest limits (uncertainty always surfaced).
-Built test-first (RED → GREEN → REFACTOR).
+**Core Principles:**
+- ✅ Receive-only
+- ✅ Explainable-only (every verdict carries evidence)
+- ✅ Offline-first
+- ✅ Deterministic core
+- ✅ Honest limits (uncertainty always surfaced)
+- ✅ Built test-first (RED → GREEN → REFACTOR)
 
 ---
 
-## Current limitations
+## Current Limitations
 
-- **IQ→bits demodulation** is a seam pending a physical HackRF + field `.iq`
-  fixtures; live mode classifies protocols but defers device determination until then
-  (exceptions: ADS-B aircraft and NOAA APT satellites, which do decode live).
-- **NOAA APT weather-satellite imagery** (137 MHz) decodes live to a greyscale image shown in
-  the device drawer; per a documented invariant-#3 carve-out the image is held **in-memory only**
-  (never persisted, never egressed), and georeferenced map placement is a deferred **Phase 2**.
-- **Live Claude client** is stubbed — the analyst cloud mode and the M13 enhancement
-  pass call an `IClaudeClient` that needs an API key (via `SignalAtlas:ClaudeApiKey`)
-  and network; the offline/deterministic paths are fully functional.
-- Single-node; a real map basemap drops in via `VITE_BASEMAP_STYLE` + a bundled
-  `.pmtiles` (offline graticule is the default).
+| Limitation | Status |
+|---|---|
+| **IQ→bits demodulation** | Pending physical HackRF + field `.iq` fixtures; live mode classifies protocols but defers device determination (except ADS-B aircraft and NOAA APT satellites) |
+| **NOAA APT weather-satellite imagery** | Decodes live to greyscale (137 MHz); held in-memory only (never persisted/egressed); georeferenced map placement is Phase 2 |
+| **Live Claude client** | Stubbed — analyst cloud mode (M13) passes calls to `IClaudeClient` (needs `SignalAtlas:ClaudeApiKey` + network); offline/deterministic paths fully functional |
+| **Multi-node deployment** | Single-node only; basemap via `VITE_BASEMAP_STYLE` + bundled `.pmtiles` (offline graticule is default) |
 
 ---
 
-## Documentation map
+## Documentation
 
 | Document | Purpose |
 |---|---|
-| [docs/SPEC.md](docs/SPEC.md) | The buildable engineering specification (the contract). |
-| [docs/IMPLEMENTATION_PLAN.md](docs/IMPLEMENTATION_PLAN.md) | Milestones, decisions, TDD approach. |
-| [docs/OPERATIONS.md](docs/OPERATIONS.md) | Deployment, config, health/metrics, backups, runbook. |
-| [LICENSE](LICENSE) | Proprietary license + responsible-use terms. |
+| [**SPEC.md**](docs/SPEC.md) | Engineering specification (the contract) |
+| [**IMPLEMENTATION_PLAN.md**](docs/IMPLEMENTATION_PLAN.md) | Milestones, decisions, TDD approach |
+| [**OPERATIONS.md**](docs/OPERATIONS.md) | Deployment, config, health/metrics, backups, runbook |
+| [**LICENSE**](LICENSE) | Proprietary license + responsible-use terms |
+
+---
+
+<div align="center">
+
+**Made with ❤️ by Russell Benzing**
+
+[📖 Documentation](docs/SPEC.md) • [🐛 Issues](https://github.com/rbenzing/SignalAtlas/issues) • [💼 License](LICENSE)
+
+</div>
