@@ -30,6 +30,9 @@ non-loopback address after the authorization gate is upgraded from single-operat
 | `Ingestion:Gain:AmpEnable` / `:LnaDb` / `:VgaDb` | native-HackRF RX gain stages (amp 0/+14 dB; LNA 0–40 dB step 8; VGA 0–62 dB step 2) — validated against HackRF limits, fail-fast on out-of-range | `false` / `16` / `20` |
 | `Ingestion:BasebandBwHz` / `Ingestion:BiasTee` | native-HackRF baseband filter width (Hz) / antenna-port +3.3 V bias-tee | ~sample rate / `false` |
 | `SignalAtlas:ClaudeApiKey` / `CLAUDE_API_KEY` | optional Claude uplift key (M12/M13) | unset |
+| `Analyst:CloudEnabled` | opt in to the live Claude client (`AnthropicClaudeClient`) for analyst phrasing + the enhancement pass; requires a key present. When `false`/unset, `StubClaudeClient` is used and the analyst stays offline | `false` |
+| `Analyst:Model` | analyst phrasing model id | `claude-sonnet-5` |
+| `Analyst:Online` | connectivity signal (SPEC §4.3): drives offline-first behavior — offline → enhancement runs queue (AC-DA5), analyst stays offline. Defaults to the value of `Analyst:CloudEnabled`; set `false` to force offline on a field node that has cloud configured but no uplink | `= Analyst:CloudEnabled` |
 
 > The `Ingestion:Gain:*` / `BasebandBwHz` / `BiasTee` keys drive the **native (SoapySDR) HackRF** source
 > (dormant until that device is present). The **browser WebUSB** path sets these from the navbar popover
@@ -140,8 +143,18 @@ guard in force).
 The **Analyst** page issues grounded, cited Q&A over the stores via `POST /api/v1/analyst/query`.
 Offline (default) it runs the deterministic `OfflineAnalyst` (intent classification + templated,
 cited answers — no LLM), so it works fully offline and honestly returns "None found." when the
-stores are empty. Cloud phrasing (Claude) is wired behind the same engine but uses `StubClaudeClient`
-until a live `IClaudeClient` HTTP impl + API key are configured (see §2 `SignalAtlas:ClaudeApiKey`).
+stores are empty.
+
+**Enabling cloud phrasing (Claude).** Set `Analyst:CloudEnabled=true` and provide a key
+(`SignalAtlas:ClaudeApiKey` or `CLAUDE_API_KEY`, §2). The API then wires the live
+`AnthropicClaudeClient` (official `Anthropic` C# SDK, `POST /v1/messages`, Sonnet 5 default via
+`Analyst:Model`) and the analyst delegates free-form phrasing to Claude — **still grounded on the same
+retrieved records + citations** (P6); on an empty result Claude is never called. The cloud path is used
+only when enabled **and** a key is present **and** the node is online (`Analyst:Online`, which defaults
+to `Analyst:CloudEnabled`). If the live call fails (network drop, timeout, API error) the analyst
+**degrades gracefully to the offline, grounded answer** — it never errors the request. Controlled egress
+(§4.2 L7) holds: only structured RF metadata + the query text leave the edge; the key is never logged.
+With cloud disabled (the default) `StubClaudeClient` is used and nothing touches the network.
 
 ## 11. Known limits (this version)
 
@@ -153,8 +166,9 @@ until a live `IClaudeClient` HTTP impl + API key are configured (see §2 `Signal
   built**: near-Earth SGP4 propagation (Celestrak TLEs) places the image as an approximate quad
   overlay on the RF Map via `GET /devices/{id}/geo`, shown when the map is on the **Weather**
   basemap and tuned to the NOAA APT band.
-- Live **Claude** paths (analyst cloud phrasing, M13 enhancement pass) are stubbed — the platform
-  is complete with them disabled (AC-DA0). `/map/heatmap`, `/replay`, `/export`, and `/sync/*`
-  endpoints (SPEC §9.2) are not yet exposed.
+- Live **Claude** paths (analyst cloud phrasing, M13 enhancement pass) are built (`AnthropicClaudeClient`)
+  but **off by default** — the platform is complete with them disabled (AC-DA0). Enable per §10; a live
+  round-trip needs an operator API key + network (not exercised in CI). `/map/heatmap`, `/replay`,
+  `/export`, and `/sync/*` endpoints (SPEC §9.2) are not yet exposed.
 - Single-node only; multi-sensor fusion and RBAC are seamed but deferred (ADR-9).
 - Encryption-at-rest and Timescale hypertable behavior are verified only in the Docker CI lane.

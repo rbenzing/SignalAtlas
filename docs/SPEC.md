@@ -434,7 +434,7 @@ CREATE TABLE sessions (                                   -- a field collection 
 CREATE TABLE analysis_runs (                              -- a deferred Claude pass over a session/range
   id UUID PRIMARY KEY, session_id TEXT, from_time TIMESTAMPTZ, to_time TIMESTAMPTZ,
   engine TEXT NOT NULL,                                   -- 'claude'
-  model TEXT NOT NULL,                                    -- 'claude-sonnet-4-6' | 'claude-opus-4-8'
+  model TEXT NOT NULL,                                    -- 'claude-sonnet-5' | 'claude-opus-5'
   status TEXT NOT NULL,                                   -- 'queued'|'running'|'done'|'failed'
   started TIMESTAMPTZ, finished TIMESTAMPTZ, report JSONB, tokens_used BIGINT);
 
@@ -521,7 +521,7 @@ sharing one **deterministic retrieval/tool + citation layer**:
   near X", "unknown emitters in band Y") → deterministic retrieval → a **template-rendered**,
   grounded answer with citations. Fast, fully offline, grounded by construction. Unsupported
   phrasing → an honest fallback that lists what it can answer (never a guess).
-- **CloudAnalyst (Claude):** when online + enabled, Claude — **Sonnet 4.6** default, **Opus 4.8**
+- **CloudAnalyst (Claude):** when online + enabled, Claude — **Sonnet 5** default, **Opus 5**
   for hard multi-step queries — handles free-form phrasing/reasoning, still grounded + cited
   through the same tool layer.
 
@@ -543,9 +543,9 @@ and shippable with this engine disabled (AC-DA0). The system also computes a per
 - **Refine mapping** — reason about emitter location/movement; annotate map areas.
 - **Cross-session investigations** — patterns/changes across multiple sessions.
 - **Session report** — a grounded narrative summary stored on the run.
-**Interface:** `IDeferredAnalyzer { AnalysisRun Run(AnalysisRequest req); }`; uses the **same grounded
-retrieval/tool + citation layer** as §8.12; Claude model per difficulty (Sonnet 4.6 default, Opus 4.8
-hard). The tool layer is deterministic and unit-tested **without** Claude.
+**Interface:** `IDeferredAnalyzer { Task<AnalysisRun> RunAsync(AnalysisRequest req, CancellationToken ct); }`;
+uses the **same grounded retrieval/tool + citation layer** as §8.12; Claude model per difficulty (Sonnet 5
+default, Opus 5 hard). The tool layer is deterministic and unit-tested **without** Claude.
 **Guardrails:** operator-initiated; sends only structured metadata (no raw IQ / personal content);
 every enrichment carries non-empty citations (DB-enforced); proposals are advisory until accepted.
 **Acceptance:** **AC-DA0 the full platform E2E (collect → classify → decode → correlate → map →
@@ -784,9 +784,15 @@ added). This log is the audit trail; the inline spec already reflects every corr
 ### 18.6 Claude models (§8.9 / §8.12 / §8.13) — verified against the authoritative Claude API reference
 | Claim | Verdict |
 |---|---|
-| `claude-sonnet-4-6` is a real, current model (1M context) — analyst default | ✅ |
-| `claude-opus-4-8` is a real, current model (1M context) — hard-query/analysis tier | ✅ |
+| `claude-sonnet-5` is a real, current model — analyst/enhancement default (balanced tier) | ✅ |
+| `claude-opus-5` is a real, current model — hard-query/analysis tier | ✅ |
 | Model IDs take **no date suffix** | ✅ |
+
+> **v3.5 update (live client):** the M13 live `IClaudeClient` is now built (`AnthropicClaudeClient`, official
+> `Anthropic` C# SDK). The analyst/enhancement seam is **async** (`CompleteAsync`); the default models moved
+> to the current **Claude 5** family (Sonnet 5 balanced default, Opus 5 hard) — the earlier `claude-sonnet-4-6`
+> / `claude-opus-4-8` remain valid but are superseded. The live client is registered only when
+> `Analyst:CloudEnabled=true` + a key is present; offline/tests keep `StubClaudeClient`, so AC-DA0 holds.
 
 ### 18.7 Residual unknowns (validate in the field, not on paper — already flagged §16)
 - Achievable RF-fingerprint `ref_quality` ceiling on this rig (lab numbers ≠ field). 
@@ -817,8 +823,8 @@ Legend: **✅ built** · **◑ partial** (seam present; hardware/live-only/cloud
 | §8.9 ML classification (M9) | ◑ | Pure-C# softmax (`SignalAtlas.Ml`) behind `IClassifier`; ~0.97 on **synthetic** data. ONNX/GBM/CNN is the documented production upgrade for NFR-A2 on real signals. |
 | §8.10 Fingerprinting (M10) | ◑ | `SignalAtlas.Fingerprint` seam; reference-gated accuracy deferred (needs stable ref + field IQ). |
 | §8.11 Prediction (M11) | ◑ | Forecast seam reserved on the behavior engine. |
-| §8.12 NL Analyst (M12) | ✅ | `OfflineAnalyst` (intent + templated cited answers, no LLM) + `POST /analyst/query` + **Analyst web page**. `CloudAnalyst` wired but uses `StubClaudeClient`. |
-| §8.13 Claude enhancement (M13) | ◑ | Backend built: `/sessions`, `/sessions/{id}/enhancement-candidates`, `/analysis/runs`, `/enrichments` + accept/reject. `IClaudeClient` stubbed; **no enrichment UI**. Platform complete with it disabled (AC-DA0 holds). |
+| §8.12 NL Analyst (M12) | ✅ | `OfflineAnalyst` (intent + templated cited answers, no LLM) + `POST /analyst/query` + **Analyst web page**. `CloudAnalyst` uses the **live `AnthropicClaudeClient`** when `Analyst:CloudEnabled=true` + a key is present (Sonnet 5 default), else `StubClaudeClient`; degrades to offline if the live call fails. |
+| §8.13 Claude enhancement (M13) | ◑ | Backend built: `/sessions`, `/sessions/{id}/enhancement-candidates`, `/analysis/runs`, `/enrichments` + accept/reject. **Live `AnthropicClaudeClient` wired** (async, per-run model); still **no enrichment UI**, and a live pass needs a key + `Analyst:CloudEnabled=true`. Platform complete with it disabled (AC-DA0 holds). |
 | §8.14 RF Audio Player | ✅ | Server-side WBFM/NBFM/AM/USB/LSB/CW demod (true phasing SSB) over `/audio` WebSocket; Live Spectrum page. |
 
 ### 19.2 API endpoints (§9.2) — as-built
@@ -840,8 +846,7 @@ Legend: **✅ built** · **◑ partial** (seam present; hardware/live-only/cloud
   (P5), every `/api/v1` route auth-gated. See CLAUDE.md for the operative invariant list and landmines.
 
 ### 19.4 Next to add (prioritized)
-1. **Live `IClaudeClient` HTTP impl** — unlocks §8.12 cloud phrasing + the §8.13 enhancement pass (needs API key + network).
-2. **Enrichment accept/reject UI** — surface the §8.13 lifecycle in the web app (dormant until #1).
+1. **Enrichment accept/reject UI** — surface the §8.13 lifecycle in the web app (the live client is now wired; this makes the overlay usable). ~~Live `IClaudeClient` HTTP impl~~ — **done** (`AnthropicClaudeClient`).
 3. **Map/export/sync/ack endpoints** — the §9.2 gaps in §19.2.
 4. **Native SoapySDR/HackRF source + per-protocol demodulators** — needs the device + field `.iq` captures.
 5. **Docker-lane CI** — Postgres/Timescale, encryption-at-rest, retention (needs a Docker host).

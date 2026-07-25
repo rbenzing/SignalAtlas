@@ -19,7 +19,7 @@ public class DeferredAnalyzerTests
             [new EvidenceItem("f", "v", 1.0)], 915_000_000, 125_000, 100,
             new Dictionary<string, double> { ["snr_db"] = 12.5 });
 
-    private static AnalysisRequest Req => new(SessionId: "sess-1", From: null, To: null, Model: "claude-sonnet-4-6");
+    private static AnalysisRequest Req => new(SessionId: "sess-1", From: null, To: null, Model: "claude-sonnet-5");
 
     private sealed record Harness(
         DeferredClaudeAnalyzer Analyzer,
@@ -45,12 +45,12 @@ public class DeferredAnalyzerTests
     }
 
     [Fact]
-    public void Online_Run_ProducesProposedCitedEnrichments_ForResidualCandidates()
+    public async Task Online_Run_ProducesProposedCitedEnrichments_ForResidualCandidates()
     {
         // 1 confident (skipped) + 2 residual candidates (Unknown, below-floor) → 2 enrichments.
         var h = Build(online: true, Sig(1, "Wi-Fi", 0.95), Sig(2, "Unknown", 0.4), Sig(3, "LoRa", 0.5));
 
-        var run = h.Analyzer.Run(Req);
+        var run = await h.Analyzer.RunAsync(Req);
 
         Assert.Equal(AnalysisRun.Done, run.Status);
         Assert.Equal(2, h.Enrichments.Added.Count);
@@ -64,12 +64,12 @@ public class DeferredAnalyzerTests
     }
 
     [Fact]
-    public void Run_NeverMutatesTargetSignalRow_OverlayOnly()
+    public async Task Run_NeverMutatesTargetSignalRow_OverlayOnly()
     {
         var h = Build(online: true, Sig(2, "Unknown", 0.4));
         var before = h.Signals[0];
 
-        h.Analyzer.Run(Req);
+        await h.Analyzer.RunAsync(Req);
 
         // The analyzer has NO signal/emitter WRITER dependency — mutation is impossible by construction.
         // Assert the source row is byte-identical and only an overlay enrichment was produced (AC-DA2).
@@ -81,11 +81,11 @@ public class DeferredAnalyzerTests
     }
 
     [Fact]
-    public void Reclassification_IsGroundedInCitedSignalRecord()
+    public async Task Reclassification_IsGroundedInCitedSignalRecord()
     {
         var h = Build(online: true, Sig(42, "Unknown", 0.3));
 
-        h.Analyzer.Run(Req);
+        await h.Analyzer.RunAsync(Req);
 
         var enrichment = Assert.Single(h.Enrichments.Added);
         var citation = Assert.Single(enrichment.Citations);
@@ -95,11 +95,11 @@ public class DeferredAnalyzerTests
     }
 
     [Fact]
-    public void Offline_Run_IsQueued_NotFailed_AndExecutesOnReconnect()
+    public async Task Offline_Run_IsQueued_NotFailed_AndExecutesOnReconnect()
     {
         var h = Build(online: false, Sig(2, "Unknown", 0.4));
 
-        var queued = h.Analyzer.Run(Req);
+        var queued = await h.Analyzer.RunAsync(Req);
 
         // AC-DA5: offline → queued (NOT failed); no enrichments produced yet.
         Assert.Equal(AnalysisRun.Queued, queued.Status);
@@ -107,7 +107,7 @@ public class DeferredAnalyzerTests
 
         // Reconnect and drain the queue → the same run executes to completion.
         h.Connectivity.IsOnline = true;
-        var executed = h.Analyzer.RunQueued();
+        var executed = await h.Analyzer.RunQueuedAsync();
 
         var run = Assert.Single(executed);
         Assert.Equal(queued.Id, run.Id);
@@ -117,19 +117,19 @@ public class DeferredAnalyzerTests
     }
 
     [Fact]
-    public void RunQueued_IsNoOp_WhileStillOffline()
+    public async Task RunQueued_IsNoOp_WhileStillOffline()
     {
         var h = Build(online: false, Sig(2, "Unknown", 0.4));
-        h.Analyzer.Run(Req);
+        await h.Analyzer.RunAsync(Req);
 
-        var executed = h.Analyzer.RunQueued();
+        var executed = await h.Analyzer.RunQueuedAsync();
 
         Assert.Empty(executed);
         Assert.Empty(h.Enrichments.Added);
     }
 
     [Fact]
-    public void EnrichmentId_IsDeterministic_AcrossRepeatedRunsOverSameSignal()
+    public async Task EnrichmentId_IsDeterministic_AcrossRepeatedRunsOverSameSignal()
     {
         // #21: the tool/egress layer is deterministic (P5) — same run+signal → same enrichment id,
         // not a fresh Guid.NewGuid() each time. Two separate harnesses (same signal, same fixed clock)
@@ -147,30 +147,25 @@ public class DeferredAnalyzerTests
             new FakeSignalRepository([signal]), new FakeEmitterRepository([]), new FakeAnalysisRunRepository(),
             enrichmentsB, new StubClaudeClient(), new MutableConnectivity(true), new FixedClock(T));
 
-        // Execute is only reachable via Run/RunQueued, both of which mint a fresh run id per call — so
-        // to compare enrichment ids for "the same run" we drive both analyzers through the SAME queued
-        // request id by going through the offline→RunQueued path is unnecessary; instead assert the
-        // narrower, directly-testable property: the enrichment id is a pure function of (runId, signalId)
-        // by re-deriving it exactly as production code does and checking it matches what was persisted.
-        var runA = analyzerA.Run(Req);
+        // The enrichment id is a pure function of (runId, signalId). Each Run mints a fresh run id, so
+        // ids differ across runs but are stable for a given run — assert both properties.
+        var runA = await analyzerA.RunAsync(Req);
         var enrichmentA = Assert.Single(enrichmentsA.Added);
         var expectedId = DeterministicGuid.From($"{runA.Id}:signal:99");
         Assert.Equal(expectedId, enrichmentA.Id);
 
-        // Re-running produces a NEW run id (Run/RunQueued mint runId via Guid.NewGuid per AC-DA5/API
-        // semantics), so the enrichment id differs across runs — but is stable for a given run.
-        var runB = analyzerB.Run(Req);
+        var runB = await analyzerB.RunAsync(Req);
         var enrichmentB = Assert.Single(enrichmentsB.Added);
         Assert.Equal(DeterministicGuid.From($"{runB.Id}:signal:99"), enrichmentB.Id);
         Assert.NotEqual(enrichmentA.Id, enrichmentB.Id); // different run ids → different derived ids
     }
 
     [Fact]
-    public void ConcurrentEnqueue_ViaRun_WhileOffline_DoesNotThrow()
+    public async Task ConcurrentEnqueue_ViaRun_WhileOffline_DoesNotThrow()
     {
         // #10: Run (Enqueue) and RunQueued (Dequeue) share the same Queue<> — concurrent Run calls while
-        // offline must not corrupt/throw. RunQueued draining is exercised elsewhere; this is a smoke test
-        // that many concurrent Enqueues under the lock complete cleanly with no lost/duplicate entries.
+        // offline must not corrupt/throw. The offline branch of RunAsync completes synchronously (no
+        // network), so GetAwaiter().GetResult() here does not block a thread pool thread.
         var runs = new FakeAnalysisRunRepository();
         var enrichments = new FakeEnrichmentRepository();
         var connectivity = new MutableConnectivity(false);
@@ -183,7 +178,7 @@ public class DeferredAnalyzerTests
         {
             try
             {
-                analyzer.Run(Req with { SessionId = $"sess-{i}" });
+                analyzer.RunAsync(Req with { SessionId = $"sess-{i}" }).GetAwaiter().GetResult();
             }
             catch (Exception ex)
             {
@@ -195,17 +190,17 @@ public class DeferredAnalyzerTests
         Assert.Equal(50, runs.All().Count(r => r.Status == AnalysisRun.Queued));
 
         connectivity.IsOnline = true;
-        var executed = analyzer.RunQueued();
+        var executed = await analyzer.RunQueuedAsync();
         Assert.Equal(50, executed.Count);
         Assert.All(executed, r => Assert.Equal(AnalysisRun.Done, r.Status));
     }
 
     [Fact]
-    public void Run_WritesGroundedSessionReport_CitingSources()
+    public async Task Run_WritesGroundedSessionReport_CitingSources()
     {
         var h = Build(online: true, Sig(7, "Unknown", 0.4));
 
-        var run = h.Analyzer.Run(Req);
+        var run = await h.Analyzer.RunAsync(Req);
 
         Assert.False(string.IsNullOrWhiteSpace(run.ReportJson));
         // The report cites its sources (AC-DA6): the candidate signal id appears in the report citations.

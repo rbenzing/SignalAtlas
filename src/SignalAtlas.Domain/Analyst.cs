@@ -85,5 +85,5 @@ public interface IAnalystRetrieval
 /// </summary>
 public interface IAnalystEngine
 {
-    AnalystAnswer Answer(AnalystQuery q);
+    Task<AnalystAnswer> AnswerAsync(AnalystQuery q, CancellationToken ct = default);
 }

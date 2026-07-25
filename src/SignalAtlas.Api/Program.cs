@@ -139,8 +139,31 @@ builder.Services.AddSignalAtlasPersistence(builder.Configuration);
 // Offline is the safe default (NFR-R4): AlwaysOfflineConnectivity + StubClaudeClient mean no network
 // and no key are needed. The live Claude HTTP client (M13) reads the key via ISecretProvider (§4.6).
 builder.Services.AddSingleton<IIntentClassifier, IntentClassifier>();
-builder.Services.AddSingleton<IConnectivity, AlwaysOfflineConnectivity>();
-builder.Services.AddSingleton<IClaudeClient, StubClaudeClient>();
+
+bool claudeCloudEnabled = string.Equals(
+    builder.Configuration["Analyst:CloudEnabled"], "true", StringComparison.OrdinalIgnoreCase);
+
+// Connectivity (SPEC §4.3, NFR-R4): OFFLINE-FIRST — the node is offline (→ enhancement runs queue,
+// AC-DA5; analyst stays offline) unless it has a reason to be online. Enabling cloud implies the
+// operator expects an uplink, so `Analyst:Online` DEFAULTS to `Analyst:CloudEnabled`; an explicit
+// `Analyst:Online=false` still forces offline (a field node with cloud configured but no uplink).
+string? onlineCfg = builder.Configuration["Analyst:Online"];
+bool nodeOnline = onlineCfg is { Length: > 0 }
+    ? string.Equals(onlineCfg, "true", StringComparison.OrdinalIgnoreCase)
+    : claudeCloudEnabled;
+builder.Services.AddSingleton<IConnectivity>(new StaticConnectivity(nodeOnline));
+
+// The Claude client seam (SPEC §8.12/§8.13, M13). LIVE only when cloud is explicitly enabled AND a key
+// is present — otherwise the deterministic StubClaudeClient (offline default; tests & AC-DA0 never touch
+// the network). The live client reads the key via ISecretProvider config keys (§4.6) and is the only
+// non-deterministic step; it is quarantined to the optional cloud overlay, never the core (P5).
+string? claudeApiKey =
+    builder.Configuration[ClaudeApiKeyAccessor.PrimaryKey] ?? builder.Configuration[ClaudeApiKeyAccessor.FallbackKey];
+if (claudeCloudEnabled && !string.IsNullOrEmpty(claudeApiKey))
+    builder.Services.AddSingleton<IClaudeClient>(new AnthropicClaudeClient(claudeApiKey));
+else
+    builder.Services.AddSingleton<IClaudeClient, StubClaudeClient>();
+
 builder.Services.AddSingleton<IAnalystRetrieval>(sp => new AnalystRetrieval(
     sp.GetRequiredService<ISignalRepository>(),
     sp.GetRequiredService<IDeviceRepository>(),
@@ -149,7 +172,16 @@ builder.Services.AddSingleton<IAnalystRetrieval>(sp => new AnalystRetrieval(
     sp.GetRequiredService<ISpectrumBuffer>(),
     sp.GetService<IClock>() ?? new SignalAtlas.Pipeline.HostClock()));
 builder.Services.AddSingleton<OfflineAnalyst>();
-builder.Services.AddSingleton<CloudAnalyst>();
+
+// Analyst phrasing model (SPEC §8.12, §18.6): the balanced default, overridable via `Analyst:Model`.
+string analystModel = builder.Configuration["Analyst:Model"] is { Length: > 0 } configuredModel
+    ? configuredModel
+    : ClaudeModels.AnalystDefault;
+builder.Services.AddSingleton<CloudAnalyst>(sp => new CloudAnalyst(
+    sp.GetRequiredService<IIntentClassifier>(),
+    sp.GetRequiredService<IAnalystRetrieval>(),
+    sp.GetRequiredService<IClaudeClient>(),
+    analystModel));
 builder.Services.AddSingleton<IAnalystEngine>(sp =>
 {
     bool cloudEnabled = string.Equals(
@@ -340,7 +372,7 @@ api.MapGet("/summary", (ISignalRepository signals, IDeviceRepository devices, IA
 // NL Spectrum Analyst Q&A (SPEC §9.2 POST /analyst/query, §8.12). Enveloped answer carries the text,
 // the citations for every record used (P6 — non-empty unless nothing matched), the mode
 // (offline|cloud), and the resolved query type. Empty text → 400 RFC 7807 problem-details (§9.4).
-api.MapPost("/analyst/query", IResult (AnalystQueryRequest? req, IAnalystEngine engine, HttpContext ctx) =>
+api.MapPost("/analyst/query", async Task<IResult> (AnalystQueryRequest? req, IAnalystEngine engine, HttpContext ctx) =>
 {
     if (req is null || string.IsNullOrWhiteSpace(req.Text))
         return Results.Problem(
@@ -348,7 +380,7 @@ api.MapPost("/analyst/query", IResult (AnalystQueryRequest? req, IAnalystEngine 
             title: "Query text is required.",
             detail: "Provide a non-empty 'text' field.");
 
-    var answer = engine.Answer(new AnalystQuery(req.Text));
+    var answer = await engine.AnswerAsync(new AnalystQuery(req.Text), ctx.RequestAborted);
     return Results.Ok(new ApiEnvelope<AnalystAnswer>(
         ApiEnvelope<AnalystAnswer>.CurrentSchemaVersion,
         CorrelationId.For(ctx),
@@ -378,10 +410,10 @@ api.MapGet("/sessions/{id}/enhancement-candidates",
 
 // Start an optional enhancement run over a session/range (SPEC §9.2 POST /analysis/runs, §8.13). Offline
 // (the default posture) → the run is QUEUED, not failed (AC-DA5). Returns the run.
-api.MapPost("/analysis/runs", (AnalysisRunRequest? req, IDeferredAnalyzer analyzer, HttpContext ctx) =>
+api.MapPost("/analysis/runs", async (AnalysisRunRequest? req, IDeferredAnalyzer analyzer, HttpContext ctx) =>
 {
-    var model = string.IsNullOrWhiteSpace(req?.Model) ? "claude-sonnet-4-6" : req!.Model!;
-    var run = analyzer.Run(new AnalysisRequest(req?.SessionId, req?.From, req?.To, model));
+    var model = string.IsNullOrWhiteSpace(req?.Model) ? ClaudeModels.EnhancementDefault : req!.Model!;
+    var run = await analyzer.RunAsync(new AnalysisRequest(req?.SessionId, req?.From, req?.To, model), ctx.RequestAborted);
     return Results.Ok(new ApiEnvelope<AnalysisRun>(
         ApiEnvelope<AnalysisRun>.CurrentSchemaVersion,
         CorrelationId.For(ctx),

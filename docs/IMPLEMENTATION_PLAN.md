@@ -119,8 +119,8 @@ deferred) · ○ not started.
 | M9 | ML classification ≥95% w/ attribution + drift | ◑ | Pure-C# softmax classifier (`SignalAtlas.Ml`) behind `IClassifier`; ~0.97 on **synthetic** data. ONNX/GBM/CNN upgrade is the documented production step. |
 | M10 | Hardware re-ID + spoof detection | ◑ | `SignalAtlas.Fingerprint` seam present; reference-gated accuracy deferred (needs stable ref + field IQ). |
 | M11 | Activity forecasts + predicted-anomaly | ◑ | Behavior descriptive done; forecasting seam reserved. |
-| M12 | Grounded NL analyst (offline + Claude uplift) | ✅ | `OfflineAnalyst` + `/analyst/query` + **Analyst page** built. `CloudAnalyst` uses `StubClaudeClient` (live HTTP client deferred). |
-| M13 | Optional Claude enhancement (sessions/runs/enrichments) | ◑ | Backend built: `/sessions`, `/sessions/{id}/enhancement-candidates`, `/analysis/runs`, `/enrichments` + accept/reject. Claude client stubbed; **no enrichment UI yet**. |
+| M12 | Grounded NL analyst (offline + Claude uplift) | ✅ | `OfflineAnalyst` + `/analyst/query` + **Analyst page** built. `CloudAnalyst` uses the **live `AnthropicClaudeClient`** (official Anthropic C# SDK, async, Sonnet 5 default) when `Analyst:CloudEnabled=true` + a key is present, else `StubClaudeClient`. |
+| M13 | Optional Claude enhancement (sessions/runs/enrichments) | ◑ | Backend built: `/sessions`, `/sessions/{id}/enhancement-candidates`, `/analysis/runs`, `/enrichments` + accept/reject. **Live `AnthropicClaudeClient` wired** (async, per-run model); **no enrichment UI yet**. |
 
 ### Built beyond the original roadmap (incremental features)
 - **NOAA APT weather-satellite pipeline** — image decode (`AptDecoder`, in-memory only, invariant-#3 carve-out) + **Phase 2 georeference** (Vallado-validated near-Earth SGP4, Celestrak TLEs, `AptGeoReferencer`) → `GET /devices/{id}/geo` → weather-image quad overlay on the RF Map.
@@ -130,9 +130,8 @@ deferred) · ○ not started.
 - **Demo-data gating** — all seed data behind `SeedDemoData` (default off): honest empty states, not synthetic filler.
 
 ### Next to add (prioritized backlog)
-1. **Live `IClaudeClient` HTTP impl** — unlocks M12 cloud phrasing and the M13 enhancement pass (needs API key + network). Everything around it is wired.
-2. **Enrichment accept/reject UI** — surface the M13 `/enrichments` lifecycle in the web app (dormant until #1 lands).
-3. **Map/export/sync endpoints** — `/map/heatmap`, `/replay`, `/export` (GeoJSON/KML/CSV), `/sync/push` + `/sync/pull` (SPEC §9.2 gaps).
-4. **Native SoapySDR/HackRF source + per-protocol demodulators** — needs the physical device + field `.iq` captures (SPEC §4.1, landmine).
-5. **Docker-lane CI** — Postgres/Timescale round-trips, encryption-at-rest, retention (needs a Docker host).
-6. **ML production upgrade** — ONNX Runtime / GBM / CNN behind `IClassifier` to hit NFR-A2 on real signals.
+1. **Enrichment accept/reject UI** — surface the M13 `/enrichments` lifecycle in the web app; now that the live client is wired, an operator with a key can run a real enhancement pass and the overlay becomes usable. *(Live `IClaudeClient` HTTP impl — **done**: `AnthropicClaudeClient`, official Anthropic C# SDK, async, Sonnet 5 default; enable with `Analyst:CloudEnabled=true` + a key.)*
+2. **Map/export/sync endpoints** — `/map/heatmap`, `/replay`, `/export` (GeoJSON/KML/CSV), `/sync/push` + `/sync/pull` (SPEC §9.2 gaps).
+3. **Native SoapySDR/HackRF source + per-protocol demodulators** — needs the physical device + field `.iq` captures (SPEC §4.1, landmine).
+4. **Docker-lane CI** — Postgres/Timescale round-trips, encryption-at-rest, retention (needs a Docker host).
+5. **ML production upgrade** — ONNX Runtime / GBM / CNN behind `IClassifier` to hit NFR-A2 on real signals.

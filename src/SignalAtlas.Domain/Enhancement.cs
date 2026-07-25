@@ -85,7 +85,7 @@ public sealed record AnalysisRequest(
 /// </summary>
 public interface IDeferredAnalyzer
 {
-    AnalysisRun Run(AnalysisRequest req);
+    Task<AnalysisRun> RunAsync(AnalysisRequest req, CancellationToken ct = default);
 }
 
 /// <summary>Read/write access to collection sessions (SPEC §7.9, §9.2 GET /sessions).</summary>

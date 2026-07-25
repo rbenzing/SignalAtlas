@@ -14,7 +14,7 @@ namespace SignalAtlas.Enhancement;
 /// <item>advisory — <see cref="Enrichment.Proposed"/> until accepted/rejected (AC-DA4);</item>
 /// <item>overlay-only — the analyzer NEVER writes back to the signal/emitter store (AC-DA2).</item>
 /// </list>
-/// When offline the run is QUEUED (not failed) and executes on reconnect via <see cref="RunQueued"/> (AC-DA5).
+/// When offline the run is QUEUED (not failed) and executes on reconnect via <see cref="RunQueuedAsync"/> (AC-DA5).
 /// The tool/egress layer is deterministic and Claude-free; the Claude call is the only non-deterministic step.
 /// </summary>
 public sealed class DeferredClaudeAnalyzer(
@@ -45,7 +45,7 @@ public sealed class DeferredClaudeAnalyzer(
     // (e.g. the POST handler racing the reconnect drain). Never hold this across Execute (does I/O).
     private readonly object _queueLock = new();
 
-    public AnalysisRun Run(AnalysisRequest req)
+    public async Task<AnalysisRun> RunAsync(AnalysisRequest req, CancellationToken ct = default)
     {
         // A run is triggered per API request; per-request GUIDs are explicitly allowed at the API/HTTP
         // layer (CLAUDE.md prime invariant #4) even though the deterministic core avoids Guid.NewGuid.
@@ -68,11 +68,11 @@ public sealed class DeferredClaudeAnalyzer(
             runId, req.SessionId, req.From, req.To,
             AnalysisRun.ClaudeEngine, req.Model, AnalysisRun.Queued,
             Started: null, Finished: null, ReportJson: null, TokensUsed: 0));
-        return Execute(runId, req);
+        return await ExecuteAsync(runId, req, ct).ConfigureAwait(false);
     }
 
     /// <summary>Processes any queued runs once connectivity is restored (AC-DA5). No-op while offline.</summary>
-    public IReadOnlyList<AnalysisRun> RunQueued()
+    public async Task<IReadOnlyList<AnalysisRun>> RunQueuedAsync(CancellationToken ct = default)
     {
         var executed = new List<AnalysisRun>();
         if (!_connectivity.IsOnline)
@@ -86,13 +86,13 @@ public sealed class DeferredClaudeAnalyzer(
                 if (_queue.Count == 0) break;
                 item = _queue.Dequeue();
             }
-            executed.Add(Execute(item.RunId, item.Request));
+            executed.Add(await ExecuteAsync(item.RunId, item.Request, ct).ConfigureAwait(false));
         }
 
         return executed;
     }
 
-    private AnalysisRun Execute(Guid runId, AnalysisRequest req)
+    private async Task<AnalysisRun> ExecuteAsync(Guid runId, AnalysisRequest req, CancellationToken ct)
     {
         var started = _clock.UtcNow;
         _runs.Update(new AnalysisRun(
@@ -117,9 +117,12 @@ public sealed class DeferredClaudeAnalyzer(
         var candidates = scopedSignals.Where(IsCandidate).ToList();
         foreach (var s in candidates)
         {
-            // Grounded in the ACTUAL signal record (AC-DA1, reclassification grounding).
+            // Grounded in the ACTUAL signal record (AC-DA1, reclassification grounding). The per-run
+            // model (req.Model) is passed through to the client so the operator's choice is honored.
             var citation = Cite("signal", s.Id.ToString(CultureInfo.InvariantCulture));
-            var text = _claude.Complete(SystemPrompt, ReclassifyPrompt(s), [citation]);
+            var text = await _claude
+                .CompleteAsync(req.Model, SystemPrompt, ReclassifyPrompt(s), [citation], ct)
+                .ConfigureAwait(false);
             tokens += text.Length;
             reportCitations.Add(citation);
 

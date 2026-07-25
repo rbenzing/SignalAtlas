@@ -7,7 +7,8 @@ namespace SignalAtlas.Tests.Unit;
 /// M12 (SPEC §8.12): the offline/cloud engines over the shared retrieval layer. Unsupported → honest
 /// capability fallback listing supported types; supported → grounded cited answer; cloud delegates
 /// phrasing to the (stubbed) Claude client while carrying the SAME citations. Selector picks offline
-/// when disconnected, cloud when online + enabled + key present.
+/// when disconnected, cloud when online + enabled + key present, and DEGRADES to offline if the live
+/// cloud call fails (§4.3, NFR-R4).
 /// </summary>
 public class AnalystEngineTests
 {
@@ -28,10 +29,10 @@ public class AnalystEngineTests
     ];
 
     [Fact]
-    public void Offline_Unsupported_ListsSupportedCapabilities()
+    public async Task Offline_Unsupported_ListsSupportedCapabilities()
     {
         var engine = new OfflineAnalyst(new IntentClassifier(), Retrieval(Emitters));
-        var ans = engine.Answer(new AnalystQuery("write me a poem"));
+        var ans = await engine.AnswerAsync(new AnalystQuery("write me a poem"));
 
         Assert.Equal(AnalystAnswer.OfflineMode, ans.Mode);
         Assert.Equal(nameof(AnalystQueryType.Unsupported), ans.QueryType);
@@ -41,10 +42,10 @@ public class AnalystEngineTests
     }
 
     [Fact]
-    public void Offline_SupportedQuery_IsGroundedAndCited()
+    public async Task Offline_SupportedQuery_IsGroundedAndCited()
     {
         var engine = new OfflineAnalyst(new IntentClassifier(), Retrieval(Emitters));
-        var ans = engine.Answer(new AnalystQuery("list wifi"));
+        var ans = await engine.AnswerAsync(new AnalystQuery("list wifi"));
 
         Assert.Equal(AnalystAnswer.OfflineMode, ans.Mode);
         Assert.Equal(nameof(AnalystQueryType.ListByProtocol), ans.QueryType);
@@ -52,10 +53,10 @@ public class AnalystEngineTests
     }
 
     [Fact]
-    public void Cloud_SupportedQuery_UsesClaude_WithSameCitations()
+    public async Task Cloud_SupportedQuery_UsesClaude_WithSameCitations()
     {
         var engine = new CloudAnalyst(new IntentClassifier(), Retrieval(Emitters), new StubClaudeClient());
-        var ans = engine.Answer(new AnalystQuery("list wifi"));
+        var ans = await engine.AnswerAsync(new AnalystQuery("list wifi"));
 
         Assert.Equal(AnalystAnswer.CloudMode, ans.Mode);
         Assert.NotEmpty(ans.Citations);
@@ -63,10 +64,10 @@ public class AnalystEngineTests
     }
 
     [Fact]
-    public void Cloud_EmptyResult_DoesNotFabricate_ViaClaude()
+    public async Task Cloud_EmptyResult_DoesNotFabricate_ViaClaude()
     {
         var engine = new CloudAnalyst(new IntentClassifier(), Retrieval([]), new ThrowingClaudeClient());
-        var ans = engine.Answer(new AnalystQuery("list wifi"));
+        var ans = await engine.AnswerAsync(new AnalystQuery("list wifi"));
 
         Assert.Equal(AnalystAnswer.CloudMode, ans.Mode);
         Assert.Empty(ans.Citations);
@@ -74,19 +75,21 @@ public class AnalystEngineTests
     }
 
     [Fact]
-    public void Selector_PicksOffline_WhenDisconnected()
+    public async Task Selector_PicksOffline_WhenDisconnected()
     {
         var selector = BuildSelector(online: false, cloudEnabled: true, keyPresent: true);
         Assert.False(selector.UsesCloud);
-        Assert.Equal(AnalystAnswer.OfflineMode, selector.Answer(new AnalystQuery("list wifi")).Mode);
+        var ans = await selector.AnswerAsync(new AnalystQuery("list wifi"));
+        Assert.Equal(AnalystAnswer.OfflineMode, ans.Mode);
     }
 
     [Fact]
-    public void Selector_PicksCloud_WhenOnlineEnabledAndKeyPresent()
+    public async Task Selector_PicksCloud_WhenOnlineEnabledAndKeyPresent()
     {
         var selector = BuildSelector(online: true, cloudEnabled: true, keyPresent: true);
         Assert.True(selector.UsesCloud);
-        Assert.Equal(AnalystAnswer.CloudMode, selector.Answer(new AnalystQuery("list wifi")).Mode);
+        var ans = await selector.AnswerAsync(new AnalystQuery("list wifi"));
+        Assert.Equal(AnalystAnswer.CloudMode, ans.Mode);
     }
 
     [Theory]
@@ -96,6 +99,26 @@ public class AnalystEngineTests
     {
         var selector = BuildSelector(online: true, cloudEnabled: cloudEnabled, keyPresent: keyPresent);
         Assert.False(selector.UsesCloud);
+    }
+
+    [Fact]
+    public async Task Selector_DegradesToOffline_WhenLiveCloudCallFails()
+    {
+        // §4.3 / NFR-R4: cloud is selected (online + enabled + key), but the live Claude call throws
+        // (network drop / API error). The selector must return the grounded OFFLINE answer, not error.
+        var retrieval = Retrieval(Emitters);
+        var selector = new AnalystEngineSelector(
+            new OfflineAnalyst(new IntentClassifier(), retrieval),
+            new CloudAnalyst(new IntentClassifier(), retrieval, new ThrowingClaudeClient()),
+            new StaticConnectivity(online: true),
+            cloudEnabled: true,
+            keyPresent: true);
+
+        Assert.True(selector.UsesCloud);
+        var ans = await selector.AnswerAsync(new AnalystQuery("list wifi"));
+
+        Assert.Equal(AnalystAnswer.OfflineMode, ans.Mode); // degraded, still grounded + cited
+        Assert.NotEmpty(ans.Citations);
     }
 
     private static AnalystEngineSelector BuildSelector(bool online, bool cloudEnabled, bool keyPresent)
@@ -111,7 +134,8 @@ public class AnalystEngineTests
 
     private sealed class ThrowingClaudeClient : IClaudeClient
     {
-        public string Complete(string s, string u, IReadOnlyList<EvidenceItem> g)
-            => throw new InvalidOperationException("Claude must not be called for an empty result (P6).");
+        public Task<string> CompleteAsync(
+            string model, string s, string u, IReadOnlyList<EvidenceItem> g, CancellationToken ct = default)
+            => throw new InvalidOperationException("Claude must not be called / reachable here.");
     }
 }

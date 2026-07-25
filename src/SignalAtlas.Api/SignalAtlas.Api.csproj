@@ -1,6 +1,7 @@
 <Project Sdk="Microsoft.NET.Sdk.Web">
 
   <ItemGroup>
+    <PackageReference Include="Anthropic" Version="12.39.0" />
     <PackageReference Include="prometheus-net.AspNetCore" Version="8.2.1" />
     <!-- Pin EF Relational to match Persistence and silence MSB3277 (Npgsql 10.0.2 pulls 10.0.4). -->
     <PackageReference Include="Microsoft.EntityFrameworkCore.Relational" Version="10.0.9" />

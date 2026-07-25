@@ -13,22 +13,23 @@ public sealed class OfflineAnalyst(IIntentClassifier classifier, IAnalystRetriev
     private readonly IIntentClassifier _classifier = classifier;
     private readonly IAnalystRetrieval _retrieval = retrieval;
 
-    public AnalystAnswer Answer(AnalystQuery q)
+    // No LLM: the work is synchronous, wrapped in a completed task to satisfy the async contract.
+    public Task<AnalystAnswer> AnswerAsync(AnalystQuery q, CancellationToken ct = default)
     {
         var intent = _classifier.Classify(q.Text ?? string.Empty);
 
         if (intent.QueryType == AnalystQueryType.Unsupported)
-            return new AnalystAnswer(
+            return Task.FromResult(new AnalystAnswer(
                 AnalystCapabilities.FallbackText(),
                 [],
                 AnalystAnswer.OfflineMode,
-                AnalystQueryType.Unsupported.ToString());
+                AnalystQueryType.Unsupported.ToString()));
 
         var result = _retrieval.Retrieve(intent);
-        return new AnalystAnswer(
+        return Task.FromResult(new AnalystAnswer(
             result.Answer,
             result.Citations,
             AnalystAnswer.OfflineMode,
-            intent.QueryType.ToString());
+            intent.QueryType.ToString()));
     }
 }
