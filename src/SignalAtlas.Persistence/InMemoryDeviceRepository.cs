@@ -52,6 +52,13 @@ public sealed class InMemoryDeviceRepository : IDeviceRepository, IDemoSeedStore
             return _devices.Count;
     }
 
+    /// <summary>A single device by id via a locked lookup — no full copy for one lookup (#8).</summary>
+    public Device? Get(string id)
+    {
+        lock (_sync)
+            return _devices.FirstOrDefault(d => string.Equals(d.Id, id, StringComparison.Ordinal));
+    }
+
     private const int MaxDevices = 2000;
 
     /// <summary>Idempotent, newest-first, bounded upsert (SPEC §8.4). Merges into any existing row with

@@ -313,7 +313,7 @@ api.MapGet("/devices/{id}/geo", async Task<IResult> (
 {
     audit.Record("local-operator", "read:device-geo", id);
 
-    var device = devices.GetDevices(int.MaxValue).FirstOrDefault(d => d.Id == id);
+    var device = devices.Get(id); // #8: keyed lookup, not a full-table scan for one id
     if (device is null || device.Protocol != "NOAA-APT")
         return Results.NotFound();
 
@@ -563,9 +563,13 @@ api.MapGet("/spectrum/coverage", (ISpectrumBuffer buffer, ISignalRepository sign
 {
     var now = DateTimeOffset.UtcNow;
 
-    // (time, centerFreqHz) samples from recent signals + buffered frames.
-    var samples = signals.GetSignals(int.MaxValue).Select(s => (s.Time, Freq: s.CenterFreqHz))
-        .Concat(buffer.Recent(int.MaxValue).Select(f => (f.Time, Freq: f.CenterFreqHz)))
+    // (time, centerFreqHz) samples from RECENT signals + the (already bounded) spectrum ring. #8: cap
+    // the signal read to the most-recent N so a coverage poll never materializes the whole signals
+    // hypertable; a band with only signals older than that window reads as a coverage gap, which is
+    // exactly what this indicator is for (§4.4). The spectrum buffer is a bounded ring already.
+    const int CoverageSignalCap = 5000;
+    var samples = signals.GetSignals(CoverageSignalCap).Select(s => (s.Time, Freq: s.CenterFreqHz))
+        .Concat(buffer.Recent(CoverageSignalCap).Select(f => (f.Time, Freq: f.CenterFreqHz)))
         .ToList();
 
     var bands = SpectrumSupport.Bands.Select(b =>

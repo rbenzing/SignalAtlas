@@ -54,6 +54,19 @@ public sealed class InMemoryAlertRepository : IAlertRepository, IAlertWriter, ID
         }
     }
 
+    /// <summary>Alerts at or after <paramref name="since"/>, newest first (#8) — a windowed read over
+    /// the bounded ring under the lock, instead of copying the whole store and filtering client-side.</summary>
+    public IReadOnlyList<Alert> GetSince(DateTimeOffset since)
+    {
+        lock (_sync)
+        {
+            var result = new List<Alert>();
+            for (var node = _alerts.Last; node is not null; node = node.Previous)
+                if (node.Value.Time >= since) result.Add(node.Value); // newest-first, windowed (ring ≤ Capacity)
+            return result;
+        }
+    }
+
     /// <summary>Appends an anomaly alert raised by the live ingestion pipeline (SPEC §8.8).</summary>
     public void Add(Alert a)
     {

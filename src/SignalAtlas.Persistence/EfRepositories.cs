@@ -58,6 +58,9 @@ public sealed class EfDeviceRepository(SignalAtlasDbContext db) : IDeviceReposit
     /// <summary>Total device row count — server-side (#8).</summary>
     public int Count() => db.Devices.Count();
 
+    /// <summary>A single device by id via a keyed lookup — server-side, no table scan (#8).</summary>
+    public Device? Get(string id) => db.Devices.Find(id);
+
     /// <summary>Idempotent insert-or-update keyed on the deterministic device id (SPEC §8.4). Merges
     /// into an existing row (see <see cref="DeviceMerge"/>) so identity accumulates across blocks
     /// instead of a later frame silently erasing an earlier one's identifiers/evidence.
@@ -137,6 +140,13 @@ public sealed class EfAlertRepository(SignalAtlasDbContext db) : IAlertRepositor
 
     /// <summary>Total alert row count — server-side (#8).</summary>
     public int Count() => db.Alerts.Count();
+
+    /// <summary>Alerts at or after <paramref name="since"/>, most-recent-first (#8) — server-side on
+    /// Npgsql; SQLite materializes then orders client-side (PORTABILITY NOTE above).</summary>
+    public IReadOnlyList<Alert> GetSince(DateTimeOffset since) =>
+        db.Database.IsNpgsql()
+            ? db.Alerts.Where(a => a.Time >= since).OrderByDescending(a => a.Time).ToList()
+            : db.Alerts.AsEnumerable().Where(a => a.Time >= since).OrderByDescending(a => a.Time).ToList();
 
     /// <summary>Appends an anomaly alert raised by the live ingestion pipeline (SPEC §8.8).</summary>
     public void Add(Alert a)

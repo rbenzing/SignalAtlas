@@ -13,6 +13,19 @@ ask — "use the HackRF One to its fullest" — is at the end.
 
 ---
 
+## Remediation status (updated 2026-07-25)
+
+The findings below were verified against the current code; **most are now fixed**. Summary:
+
+- **Fixed (22):** #1, #2, #3, #4, #5, #7, #8, #9, #10, #11, #12, #13, #15, #16, #17, #18, #19, #22, #23, #25, #26 — including both P0 device-identity collapses (#1/#2), the HackRF capability contract (#3/#4/#5, gain-stage struct + bias-tee + baseband BW + config binding + validation), determinism (#7), and **DB scalability (#8 — closed 2026-07-25:** metrics gauges now use server-side `Count()`; `/spectrum/coverage`, the analyst reads, and `/devices/{id}/geo` are bounded/keyed via `GetSignals(cap)` / `GetDevices(cap)` / new `IDeviceRepository.Get(id)` + `IAlertRepository.GetSince`).
+- **Partial (1):** #20 (CPR `Evict` still runs an O(n) stale-sweep under the lock at cap — minor; the per-victim `Aggregate` was already removed).
+- **Deferred by design (1):** #6 (`SoapyHackRfDevice.IsAvailable => false` — the native HackRF path needs the physical device + SoapySDR P/Invoke; the browser WebUSB path is the working RX today).
+- **Decision item:** #14 (`GeolocationEngine` + the `SignalAtlas.Behavior` project are built but not DI-wired — activate in the pipeline, or mark as staged seams in SPEC).
+
+The per-finding sections below are the **original 2026-07-18 audit text**, kept as the point-in-time record.
+
+---
+
 ## P0 — Critical: the platform's core function (device identification) is silently collapsing
 
 ### 1. Zigbee: every node on a PAN collapses into a single Device

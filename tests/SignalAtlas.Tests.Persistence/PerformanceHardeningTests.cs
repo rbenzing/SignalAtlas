@@ -113,6 +113,38 @@ public sealed class PerformanceHardeningTests
         Assert.Equal(before + 1, repo.Count());
     }
 
+    [Fact]
+    public void DeviceRepository_Get_ReturnsById_OrNull_WithoutFullScan()
+    {
+        var repo = new InMemoryDeviceRepository(new PassthroughResolver());
+        repo.ClearDemoSeed();
+        repo.Upsert(Dev("A"));
+        repo.Upsert(Dev("B"));
+
+        Assert.Equal("A", repo.Get("A")?.Id);
+        Assert.Null(repo.Get("missing"));
+    }
+
+    [Fact]
+    public void AlertRepository_GetSince_FiltersByTime_MostRecentFirst()
+    {
+        var repo = new InMemoryAlertRepository(new NoopAnomalyEngine()); // NoopAnomalyEngine → no seed
+        var t0 = DateTimeOffset.UnixEpoch;
+        repo.Add(Alrt("a10", t0.AddSeconds(10)));
+        repo.Add(Alrt("a20", t0.AddSeconds(20)));
+        repo.Add(Alrt("a30", t0.AddSeconds(30)));
+
+        var since = repo.GetSince(t0.AddSeconds(15));
+
+        Assert.Equal(["a30", "a20"], since.Select(a => a.Kind)); // windowed, newest-first
+    }
+
+    private static Device Dev(string id) => new(id, "t", null, new Dictionary<string, string>(),
+        null, "p", 0.9, [new EvidenceItem("f", "v", 1.0)]);
+
+    private static Alert Alrt(string kind, DateTimeOffset time) => new(
+        Guid.NewGuid(), time, "e", "d", kind, "info", "summary", [new EvidenceItem("f", "v", 1.0)]);
+
     private sealed class PassthroughResolver : IDeviceResolver
     {
         public Device? Resolve(IReadOnlyList<DecodedFrame> frames) => null; // seed frame yields no device
@@ -185,5 +217,54 @@ public sealed class PerformanceHardeningTests
 
         Assert.Equal(2, read.Count);
         Assert.Equal([3L, 2L], read.Select(s => s.Id)); // newest first, limited
+    }
+
+    [Fact]
+    public void EfDeviceRepository_Get_ReturnsById_ViaKeyedFind_OnSqlite()
+    {
+        var options = NewSqliteDb(out var connection);
+        using (connection)
+        {
+            using (var ctx = new SignalAtlasDbContext(options))
+                new EfDeviceRepository(ctx).Upsert(Dev("DEV-1"));
+
+            using var readCtx = new SignalAtlasDbContext(options);
+            var repo = new EfDeviceRepository(readCtx);
+
+            Assert.Equal("DEV-1", repo.Get("DEV-1")?.Id); // keyed Find, not a table scan
+            Assert.Null(repo.Get("nope"));
+        }
+    }
+
+    [Fact]
+    public void EfAlertRepository_GetSince_FiltersByTime_MostRecentFirst_OnSqlite()
+    {
+        var options = NewSqliteDb(out var connection);
+        using (connection)
+        {
+            var t0 = new DateTimeOffset(2026, 7, 7, 12, 0, 0, TimeSpan.Zero);
+            using (var ctx = new SignalAtlasDbContext(options))
+            {
+                var repo = new EfAlertRepository(ctx);
+                repo.Add(Alrt("a10", t0.AddSeconds(10)));
+                repo.Add(Alrt("a20", t0.AddSeconds(20)));
+                repo.Add(Alrt("a30", t0.AddSeconds(30)));
+            }
+
+            using var readCtx = new SignalAtlasDbContext(options);
+            var since = new EfAlertRepository(readCtx).GetSince(t0.AddSeconds(15));
+
+            Assert.Equal(["a30", "a20"], since.Select(a => a.Kind)); // windowed, newest-first
+        }
+    }
+
+    private static DbContextOptions<SignalAtlasDbContext> NewSqliteDb(out SqliteConnection connection)
+    {
+        connection = new SqliteConnection("DataSource=:memory:");
+        connection.Open();
+        var options = new DbContextOptionsBuilder<SignalAtlasDbContext>().UseSqlite(connection).Options;
+        using var ctx = new SignalAtlasDbContext(options);
+        ctx.Database.EnsureCreated();
+        return options;
     }
 }

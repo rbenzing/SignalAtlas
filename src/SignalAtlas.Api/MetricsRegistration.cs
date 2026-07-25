@@ -41,9 +41,11 @@ public static class MetricsRegistration
             {
                 using var scope = app.Services.CreateScope();
                 var sp = scope.ServiceProvider;
-                signals.Set(sp.GetService<ISignalRepository>()?.GetSignals(int.MaxValue).Count ?? 0);
-                devices.Set(sp.GetService<IDeviceRepository>()?.GetDevices(int.MaxValue).Count ?? 0);
-                alerts.Set(sp.GetService<IAlertRepository>()?.GetAlerts(int.MaxValue).Count ?? 0);
+                // #8: server-side Count() — never materialize the whole table just to gauge row totals
+                // (this callback fires on EVERY /metrics scrape).
+                signals.Set(sp.GetService<ISignalRepository>()?.Count() ?? 0);
+                devices.Set(sp.GetService<IDeviceRepository>()?.Count() ?? 0);
+                alerts.Set(sp.GetService<IAlertRepository>()?.Count() ?? 0);
                 drops.Set(sp.GetService<IngestionDropsMonitor>()?.Drops ?? 0);
             }
             catch

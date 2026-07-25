@@ -20,6 +20,11 @@ public sealed class AnalystRetrieval(
     private const string NoneFound = "None found.";
     private const double OccupancyMarginDb = 6.0;
 
+    // #8: bound the un-windowed reads so an analyst query never materializes a whole hypertable at
+    // field volume. The answer is a bounded chat response anyway; the most-recent N covers it, and a
+    // record older than that window is out of the analyst's "current picture" scope.
+    private const int MaxScan = 5000;
+
     private readonly ISignalRepository _signals = signals;
     private readonly IDeviceRepository _devices = devices;
     private readonly IEmitterRepository _emitters = emitters;
@@ -47,8 +52,8 @@ public sealed class AnalystRetrieval(
         var window = intent.Window ?? TimeSpan.FromHours(24);
         var cutoff = _clock.UtcNow - window;
 
-        var recentAlerts = _alerts.GetAlerts(int.MaxValue).Where(a => a.Time >= cutoff).ToList();
-        // #8: server-side windowed read (GetSince) instead of pulling the whole signals table.
+        // #8: server-side windowed reads (GetSince) instead of pulling the whole alerts/signals tables.
+        var recentAlerts = _alerts.GetSince(cutoff).ToList();
         var recentSignals = _signals.GetSince(cutoff).ToList();
 
         if (recentAlerts.Count == 0 && recentSignals.Count == 0)
@@ -97,7 +102,7 @@ public sealed class AnalystRetrieval(
 
         var unkEmitters = _emitters.All()
             .Where(e => IsUnknown(e.Protocol) && InBand(e.FreqCenterHz)).ToList();
-        var unkSignals = _signals.GetSignals(int.MaxValue)
+        var unkSignals = _signals.GetSignals(MaxScan)
             .Where(s => IsUnknown(s.Protocol) && InBand(s.CenterFreqHz)).ToList();
 
         if (unkEmitters.Count == 0 && unkSignals.Count == 0) return Empty();
@@ -142,7 +147,7 @@ public sealed class AnalystRetrieval(
             : _emitters.All().Where(e => ProtoEq(e.Protocol, intent.Protocol)).ToList();
         var matchDevices = intent.Protocol is null
             ? new List<Device>()
-            : _devices.GetDevices(int.MaxValue).Where(d => ProtoEq(d.Protocol, intent.Protocol)).ToList();
+            : _devices.GetDevices(MaxScan).Where(d => ProtoEq(d.Protocol, intent.Protocol)).ToList();
 
         if (matchEmitters.Count == 0 && matchDevices.Count == 0) return Empty();
 
