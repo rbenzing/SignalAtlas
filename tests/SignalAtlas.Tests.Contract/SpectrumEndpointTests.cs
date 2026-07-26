@@ -87,4 +87,26 @@ public class SpectrumEndpointTests(WebApplicationFactory<Program> factory)
             Assert.True(band.TryGetProperty("lastSeen", out _));
         }
     }
+
+    // Audit #14: GeolocationEngine now has a real runtime consumer via /map/heatmap.
+    [Fact]
+    public async Task GetHeatmap_ReturnsEnvelopedCells()
+    {
+        var client = _factory.CreateClient();
+        var resp = await client.GetAsync("/api/v1/map/heatmap");
+
+        Assert.Equal(HttpStatusCode.OK, resp.StatusCode); // gated route, single-operator pass-through
+        using var doc = JsonDocument.Parse(await resp.Content.ReadAsStringAsync());
+        var root = doc.RootElement;
+        Assert.Equal("v1", root.GetProperty("schemaVersion").GetString());
+
+        var cells = root.GetProperty("payload");
+        Assert.Equal(JsonValueKind.Array, cells.ValueKind); // empty until positioned observations exist
+        foreach (var c in cells.EnumerateArray())
+        {
+            Assert.True(c.TryGetProperty("lat", out _));
+            Assert.True(c.TryGetProperty("lon", out _));
+            Assert.True(c.GetProperty("count").GetInt32() >= 1);
+        }
+    }
 }

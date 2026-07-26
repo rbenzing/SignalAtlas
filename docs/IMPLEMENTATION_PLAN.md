@@ -112,13 +112,13 @@ deferred) · ○ not started.
 | M2 | Protocol + confidence + evidence | ✅ | Rule scorer (`SignalAtlas.Classification`). |
 | M3 | All-protocol decode → devices w/ vendor | ◑ | Decoders operate on **frame bytes**; per-protocol IQ→bits demod deferred except **ADS-B** (live `AdsBDemodulator`) and **NOAA APT** (`AptDecoder`). |
 | M4 | Emitters via decoded IDs (+RF fallback) | ✅ | Correlation runs RF-only for non-demodulated live protocols. |
-| M5 | RF Map: heatmap + honest uncertainty | ◑ | Map + uncertainty + ADS-B contacts + NOAA weather overlay built; `/map/heatmap` endpoint not yet exposed. |
-| M6 | Behavior profiles; timeline replay | ◑ | Behavior engine built; `/replay` endpoint deferred. |
+| M5 | RF Map: heatmap + honest uncertainty | ✅ | Map + uncertainty + ADS-B contacts + NOAA weather overlay; **`GET /map/heatmap`** now exposed (GeolocationEngine wired, audit #14). |
+| M6 | Behavior profiles; timeline replay | ◑ | `BehaviorEngine` built + tested but **not DI-wired** (staged seam, audit #14 — needs per-emitter sighting history); `/replay` endpoint deferred. |
 | M7 | Alerts (incl. new_device) + `/summary` | ✅ | Alerts view + `/summary`. |
 | M8 | Real HackRF/GPS; retention; sync; backup/export; NFR soak; degrade | ◑ | **Browser WebUSB HackRF** ingress built (`/ingest/iq`); native SoapySDR source, `/sync/*`, `/export`, soak/NFR suites deferred (need device + Docker host). |
 | M9 | ML classification ≥95% w/ attribution + drift | ◑ | Pure-C# softmax classifier (`SignalAtlas.Ml`) behind `IClassifier`; ~0.97 on **synthetic** data. ONNX/GBM/CNN upgrade is the documented production step. |
 | M10 | Hardware re-ID + spoof detection | ◑ | `SignalAtlas.Fingerprint` seam present; reference-gated accuracy deferred (needs stable ref + field IQ). |
-| M11 | Activity forecasts + predicted-anomaly | ◑ | Behavior descriptive done; forecasting seam reserved. |
+| M11 | Activity forecasts + predicted-anomaly | ◑ | `BehaviorPredictor` / `PredictedAnomalyDetector` built + tested but **not DI-wired** (staged seam, audit #14) — same sighting-history dependency as M6. |
 | M12 | Grounded NL analyst (offline + Claude uplift) | ✅ | `OfflineAnalyst` + `/analyst/query` + **Analyst page** built. `CloudAnalyst` uses the **live `AnthropicClaudeClient`** (official Anthropic C# SDK, async, Sonnet 5 default) when `Analyst:CloudEnabled=true` + a key is present, else `StubClaudeClient`. |
 | M13 | Optional Claude enhancement (sessions/runs/enrichments) | ◑ | Backend built: `/sessions`, `/sessions/{id}/enhancement-candidates`, `/analysis/runs`, `/enrichments` + accept/reject. **Live `AnthropicClaudeClient` wired** (async, per-run model); **no enrichment UI yet**. |
 
@@ -131,7 +131,7 @@ deferred) · ○ not started.
 
 ### Next to add (prioritized backlog)
 1. **Enrichment accept/reject UI** — surface the M13 `/enrichments` lifecycle in the web app; now that the live client is wired, an operator with a key can run a real enhancement pass and the overlay becomes usable. *(Live `IClaudeClient` HTTP impl — **done**: `AnthropicClaudeClient`, official Anthropic C# SDK, async, Sonnet 5 default; enable with `Analyst:CloudEnabled=true` + a key.)*
-2. **Map/export/sync endpoints** — `/map/heatmap`, `/replay`, `/export` (GeoJSON/KML/CSV), `/sync/push` + `/sync/pull` (SPEC §9.2 gaps).
+2. **Export/replay/sync endpoints** — `/replay`, `/export` (GeoJSON/KML/CSV), `/sync/push` + `/sync/pull` (SPEC §9.2 gaps). *(`/map/heatmap` — **done**, audit #14.)*
 3. **Native SoapySDR/HackRF source + per-protocol demodulators** — needs the physical device + field `.iq` captures (SPEC §4.1, landmine).
 4. **Docker-lane CI** — Postgres/Timescale round-trips, encryption-at-rest, retention (needs a Docker host).
 5. **ML production upgrade** — ONNX Runtime / GBM / CNN behind `IClassifier` to hit NFR-A2 on real signals.

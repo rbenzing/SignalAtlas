@@ -817,12 +817,12 @@ Legend: **✅ built** · **◑ partial** (seam present; hardware/live-only/cloud
 | §8.3 Classification (rules) | ✅ | Weighted-rule scorer behind `IClassifier`. |
 | §8.4 Decode & Device ID | ◑ | Decoders parse **frame bytes**; per-protocol IQ→bits demod deferred **except ADS-B** (live `AdsBDemodulator`) and **NOAA APT** (`AptDecoder`, in-memory image, invariant-#3 carve-out). Georeference (Phase 2) built: SGP4 + `AptGeoReferencer` → `/devices/{id}/geo`. |
 | §8.5 Correlation | ✅ | Decoded-ID-primary + RF fallback. Emitter temporal/BW scoring dormant (no persisted emitter state — see CLAUDE.md landmine #8). |
-| §8.6 Geospatial | ✅ | Centroid + honest uncertainty; RF Map renders it. `/map/heatmap` endpoint not yet exposed. |
-| §8.7 Behavior | ✅ | Descriptive profiles. |
+| §8.6 Geospatial | ✅ | `GeolocationEngine` (power-weighted centroid + honest uncertainty + heatmap). Wired as the **`GET /map/heatmap`** consumer (audit #14); the RF Map renders emitter uncertainty. Emitter positions are still set from the latest observation in correlation — the multi-obs centroid path is a **staged seam** pending persisted per-emitter sighting history (landmine #8). |
+| §8.7 Behavior | ◑ | `BehaviorEngine` (descriptive profiles) built + unit-tested but **not DI-wired** — a **staged seam** (audit #14): no pipeline step derives `BehaviorProfile`s at runtime, pending persisted per-emitter sighting history (landmine #8). |
 | §8.8 Anomaly | ✅ | Rule detectors incl. new_device. |
 | §8.9 ML classification (M9) | ◑ | Pure-C# softmax (`SignalAtlas.Ml`) behind `IClassifier`; ~0.97 on **synthetic** data. ONNX/GBM/CNN is the documented production upgrade for NFR-A2 on real signals. |
 | §8.10 Fingerprinting (M10) | ◑ | `SignalAtlas.Fingerprint` seam; reference-gated accuracy deferred (needs stable ref + field IQ). |
-| §8.11 Prediction (M11) | ◑ | Forecast seam reserved on the behavior engine. |
+| §8.11 Prediction (M11) | ◑ | `BehaviorPredictor` / `PredictedAnomalyDetector` built + unit-tested but **not DI-wired** — a **staged seam** (audit #14), gated on the same per-emitter sighting-history persistence as §8.7. |
 | §8.12 NL Analyst (M12) | ✅ | `OfflineAnalyst` (intent + templated cited answers, no LLM) + `POST /analyst/query` + **Analyst web page**. `CloudAnalyst` uses the **live `AnthropicClaudeClient`** when `Analyst:CloudEnabled=true` + a key is present (Sonnet 5 default), else `StubClaudeClient`; degrades to offline if the live call fails. |
 | §8.13 Claude enhancement (M13) | ◑ | Backend built: `/sessions`, `/sessions/{id}/enhancement-candidates`, `/analysis/runs`, `/enrichments` + accept/reject. **Live `AnthropicClaudeClient` wired** (async, per-run model); still **no enrichment UI**, and a live pass needs a key + `Analyst:CloudEnabled=true`. Platform complete with it disabled (AC-DA0 holds). |
 | §8.14 RF Audio Player | ✅ | Server-side WBFM/NBFM/AM/USB/LSB/CW demod (true phasing SSB) over `/audio` WebSocket; Live Spectrum page. |
@@ -830,10 +830,10 @@ Legend: **✅ built** · **◑ partial** (seam present; hardware/live-only/cloud
 ### 19.2 API endpoints (§9.2) — as-built
 - **Built & gated (`/api/v1`):** `/signals` · `/devices` · `/devices/{id}/image` · `/devices/{id}/geo` ·
   `/emitters` · `/emitters/{id}` · `/alerts` · `/summary` · `/spectrum/frames` · `/spectrum/occupancy` ·
-  `/spectrum/coverage` · `/analyst/query` · `/sessions` · `/sessions/{id}/enhancement-candidates` ·
+  `/spectrum/coverage` · `/map/heatmap` · `/analyst/query` · `/sessions` · `/sessions/{id}/enhancement-candidates` ·
   `/analysis/runs` (+ `/{id}`) · `/enrichments` (+ accept/reject).
 - **Built & intentionally ungated:** `/health` · `/ready` · `/metrics` · `/hub/live` · `/ingest/iq` · `/audio`.
-- **Not yet exposed (SPEC §9.2 gaps):** `/emitters/{id}/fingerprint` · `/map/heatmap` · `/replay` ·
+- **Not yet exposed (SPEC §9.2 gaps):** `/emitters/{id}/fingerprint` · `/replay` ·
   `/export` (GeoJSON/KML/CSV/JSON) · `/sync/push` · `/sync/pull` · `POST /alerts/{id}/ack`.
 
 ### 19.3 Persistence & platform posture

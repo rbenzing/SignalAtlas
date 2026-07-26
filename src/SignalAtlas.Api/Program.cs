@@ -1,3 +1,4 @@
+using System.Globalization;
 using System.Threading.RateLimiting;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
@@ -132,6 +133,12 @@ builder.Services.AddSingleton<IAnomalyEngine, SignalAtlas.Anomaly.AnomalyEngine>
 // Docker-OPTIONAL persistence (SPEC §4.3): Postgres/TimescaleDB when a "SignalAtlas" connection
 // string is configured, otherwise the offline-first in-memory seeded repos.
 builder.Services.AddSignalAtlasPersistence(builder.Configuration);
+
+// Honest geospatial estimator (SPEC §8.6). Wired as the /map/heatmap consumer (bucketing positioned
+// observations); its power-weighted emitter-centroid path stays a staged seam pending persisted
+// per-emitter sighting history (audit #14 / landmine #8). Registered as both concrete + interface.
+builder.Services.AddSingleton<GeolocationEngine>();
+builder.Services.AddSingleton<IGeolocationEngine>(sp => sp.GetRequiredService<GeolocationEngine>());
 
 // NL Spectrum Analyst (SPEC §8.12, M12) — dual-mode, NO offline LLM. The offline engine uses the
 // deterministic intent classifier + shared retrieval/tool + citation layer over the repos; the cloud
@@ -590,6 +597,32 @@ api.MapGet("/spectrum/coverage", (ISpectrumBuffer buffer, ISignalRepository sign
         bands));
 });
 
+// Geospatial heatmap (SPEC §9.2 /map/heatmap, §8.6): buckets recent POSITIONED observations into a
+// regular lat/lon grid via the honest GeolocationEngine (never a false point fix). Cell size in degrees
+// via ?cell= (default ~0.01° ≈ 1 km). #8: the observation read is bounded. Unpositioned obs are ignored.
+api.MapGet("/map/heatmap", (GeolocationEngine geo, IObservationRepository observations, HttpContext ctx) =>
+{
+    const int ObservationCap = 5000;
+    double cell = double.TryParse(
+        ctx.Request.Query["cell"], NumberStyles.Float, CultureInfo.InvariantCulture, out var c) && c > 0.0
+        ? c : 0.01;
+
+    var positioned = observations.GetRecent(ObservationCap)
+        .Select(o => new PositionedObservation(o.Latitude, o.Longitude, o.Power))
+        .ToList();
+
+    // Grid cell → count; report each cell's CENTRE (index+0.5)·cell so a client can plot it directly.
+    var cells = geo.Heatmap(positioned, cell)
+        .Select(kv => new HeatmapCellDto((kv.Key.LatIndex + 0.5) * cell, (kv.Key.LonIndex + 0.5) * cell, kv.Value))
+        .OrderByDescending(h => h.Count)
+        .ToList();
+
+    return Results.Ok(new ApiEnvelope<IReadOnlyList<HeatmapCellDto>>(
+        ApiEnvelope<IReadOnlyList<HeatmapCellDto>>.CurrentSchemaVersion,
+        CorrelationId.For(ctx),
+        cells));
+});
+
 // Real-time hub (SPEC §9.3 /hub/live). Mapped OUTSIDE /api/v1, so it is NOT behind the
 // AuthorizationGateFilter — hub auth follows the single-operator posture (SPEC §4.7, loopback bind)
 // and is an upgrade point (add token auth when the gate is upgraded to real RBAC).
@@ -628,3 +661,7 @@ public sealed record AnalystQueryRequest(string? Text);
 
 /// <summary>Request body for POST /analysis/runs (SPEC §9.2, §8.13). All optional; model defaults to Sonnet.</summary>
 public sealed record AnalysisRunRequest(string? SessionId, DateTimeOffset? From, DateTimeOffset? To, string? Model);
+
+/// <summary>One heatmap grid cell (SPEC §9.2 /map/heatmap, §8.6): the cell CENTRE + how many positioned
+/// observations fell in it. Client plots these as a density layer.</summary>
+public sealed record HeatmapCellDto(double Lat, double Lon, int Count);
