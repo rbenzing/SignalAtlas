@@ -33,6 +33,7 @@ import {
   getDevices,
   getDeviceGeo,
   getDeviceImage,
+  getHeatmap,
   usePolling,
   type Emitter,
   type Device,
@@ -45,9 +46,12 @@ import {
   graticuleLayer,
   aircraftToGeoJSON,
   aircraftLayer,
+  heatmapCellsToGeoJSON,
+  heatmapLayer,
   collectFitCoordinates,
   RF_SOURCE,
   RF_POINT_LAYER,
+  RF_HEATMAP_SOURCE,
   RF_HEATMAP_LAYER,
   RF_GRATICULE_SOURCE,
   RF_GRATICULE_LAYER,
@@ -127,6 +131,8 @@ export default function RfMap() {
   const { activeFreqHz } = useSdr();
   const { data, loading, error } = usePolling(getEmitters, 5000);
   const devices = usePolling(getDevices, 5000);
+  // Server-computed observation-density cells for the heatmap overlay (#14 /map/heatmap consumer).
+  const heat = usePolling(getHeatmap, 10000);
 
   // The RF Map only has mapping use for the two bands that produce contacts in this single-node
   // build (ADS-B aircraft, NOAA APT weather imagery) — tuned elsewhere, the map is disabled.
@@ -215,6 +221,12 @@ export default function RfMap() {
         data: { type: "FeatureCollection", features: [] },
       });
       map.addLayer(graticuleLayer(mode));
+      // Observation-density heatmap (toggle) — above the graticule, below emitter/aircraft markers.
+      map.addSource(RF_HEATMAP_SOURCE, {
+        type: "geojson",
+        data: { type: "FeatureCollection", features: [] },
+      });
+      map.addLayer(heatmapLayer());
       map.addSource(RF_SOURCE, {
         type: "geojson",
         data: { type: "FeatureCollection", features: [] },
@@ -285,6 +297,14 @@ export default function RfMap() {
       fittedRef.current = true;
     }
   }, [data, devices.data, mode, mapReady]);
+
+  // Push server density cells into the heatmap source as they poll in.
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map || !mapReady) return;
+    const src = map.getSource(RF_HEATMAP_SOURCE) as GeoJSONSource | undefined;
+    src?.setData(heatmapCellsToGeoJSON(heat.data ?? []));
+  }, [heat.data, mapReady]);
 
   // Heatmap layer visibility toggle.
   useEffect(() => {

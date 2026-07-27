@@ -103,6 +103,17 @@ export interface SpectrumCoverageBand {
   covered: boolean;
 }
 
+/**
+ * One server-computed heatmap density cell (SPEC §9.2 `/map/heatmap`, §8.6). `lat`/`lon` are the
+ * grid CELL CENTRE (not a raw observation) and `count` is how many positioned observations fell in
+ * it. The density grid comes from the honest `GeolocationEngine` — never a false point fix.
+ */
+export interface HeatmapCell {
+  lat: number;
+  lon: number;
+  count: number;
+}
+
 const BASE = import.meta.env.VITE_API_BASE ?? "";
 
 /** Fetch an enveloped endpoint and return the unwrapped payload. */
@@ -142,6 +153,7 @@ export const getEmitter = (id: string) =>
 export const getSpectrumFrames = () => getEnvelope<SpectrumFrame[]>("/spectrum/frames");
 export const getSpectrumOccupancy = () => getEnvelope<SpectrumOccupancy>("/spectrum/occupancy");
 export const getSpectrumCoverage = () => getEnvelope<SpectrumCoverageBand[]>("/spectrum/coverage");
+export const getHeatmap = () => getEnvelope<HeatmapCell[]>("/map/heatmap");
 
 /** Fetch a device's decoded image (e.g. NOAA APT). Returns the PNG Blob, or null on 404/none. */
 export async function getDeviceImage(id: string): Promise<Blob | null> {

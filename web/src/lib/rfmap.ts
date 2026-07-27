@@ -5,11 +5,14 @@
 import type { StyleSpecification, LayerSpecification } from "maplibre-gl";
 import type { FeatureCollection, Point, LineString } from "geojson";
 import { chartTokens, protocolColor, type ColorMode } from "../theme/palette";
-import type { Emitter, Device } from "../api";
+import type { Emitter, Device, HeatmapCell } from "../api";
 
 export const RF_SOURCE = "emitters";
 export const RF_UNCERTAINTY_LAYER = "emitter-uncertainty";
-export const RF_HEATMAP_LAYER = "emitter-heatmap";
+// The heatmap renders SERVER-computed observation density (/map/heatmap → RF_HEATMAP_SOURCE), not the
+// correlated emitter points — those are already the markers/rings on RF_SOURCE.
+export const RF_HEATMAP_SOURCE = "heatmap-cells";
+export const RF_HEATMAP_LAYER = "observation-heatmap";
 export const RF_POINT_LAYER = "emitter-points";
 export const RF_GRATICULE_SOURCE = "graticule";
 export const RF_GRATICULE_LAYER = "graticule-lines";
@@ -55,7 +58,6 @@ export interface EmitterFeatureProps {
   /** Uncertainty radius in pixels at zoom 0 (uncertaintyM / (MPP_EQUATOR_Z0·cosLat)). */
   rBase: number;
   confidence: number;
-  weight: number;
 }
 
 /** Split emitters into a placeable GeoJSON FC (colored per mode) + skip count. */
@@ -86,8 +88,6 @@ export function emittersToGeoJSON(
         cosLat,
         rBase: uncertaintyM / (MPP_EQUATOR_Z0 * cosLat),
         confidence: e.confidence,
-        // Heatmap weight by signalCount (floored so single-signal emitters show).
-        weight: Math.max(e.signalCount, 1),
       },
     });
   }
@@ -112,7 +112,9 @@ const uncertaintyRadiusExpr = [
   ["max", 2, ["*", ["get", "rBase"], 16777216]], // rBase · 2^24
 ];
 
-/** Layer stack: uncertainty rings (bottom) → heatmap (toggle) → point markers. */
+/** Emitter layer stack on RF_SOURCE: uncertainty rings (bottom) → point markers. The observation
+ * heatmap lives on its own source/layer (see {@link heatmapLayer}) so density and correlated
+ * emitters are decoupled. */
 export function rfLayers(mode: ColorMode): LayerSpecification[] {
   const surface = chartTokens[mode].surface;
   const uncertainty = {
@@ -128,18 +130,6 @@ export function rfLayers(mode: ColorMode): LayerSpecification[] {
       "circle-stroke-opacity": 0.5,
     },
   };
-  const heatmap = {
-    id: RF_HEATMAP_LAYER,
-    type: "heatmap",
-    source: RF_SOURCE,
-    layout: { visibility: "none" },
-    paint: {
-      "heatmap-weight": ["get", "weight"],
-      "heatmap-intensity": 1,
-      "heatmap-radius": 36,
-      "heatmap-opacity": 0.75,
-    },
-  };
   const points = {
     id: RF_POINT_LAYER,
     type: "circle",
@@ -151,7 +141,55 @@ export function rfLayers(mode: ColorMode): LayerSpecification[] {
       "circle-stroke-width": 2,
     },
   };
-  return [uncertainty, heatmap, points] as unknown as LayerSpecification[];
+  return [uncertainty, points] as unknown as LayerSpecification[];
+}
+
+export interface HeatmapCellProps {
+  count: number;
+  /** Heatmap weight = observation count, floored at 1 (drives `heatmap-weight`). */
+  weight: number;
+}
+
+/**
+ * Server density cells (`/map/heatmap`) → point GeoJSON weighted by observation count. Cells with a
+ * non-finite centre are skipped; the weight is floored at 1 so a single-observation cell still
+ * paints. Pure so the mapping is unit-testable without a live MapLibre instance.
+ */
+export function heatmapCellsToGeoJSON(
+  cells: HeatmapCell[],
+): FeatureCollection<Point, HeatmapCellProps> {
+  const features: FeatureCollection<Point, HeatmapCellProps>["features"] = [];
+  for (const c of cells) {
+    if (!Number.isFinite(c.lat) || !Number.isFinite(c.lon)) continue;
+    const weight = Math.max(c.count, 1);
+    features.push({
+      type: "Feature",
+      geometry: { type: "Point", coordinates: [c.lon, c.lat] },
+      properties: { count: c.count, weight },
+    });
+  }
+  return { type: "FeatureCollection", features };
+}
+
+/**
+ * Observation-density heatmap layer, fed by the server `/map/heatmap` cells (RF_HEATMAP_SOURCE).
+ * Hidden until the operator toggles it on. `heatmap-weight` maps each cell's observation count onto
+ * [0,1] (single obs → light, ~20+ → full) so a busy cell dominates without one outlier washing the
+ * rest out.
+ */
+export function heatmapLayer(): LayerSpecification {
+  return {
+    id: RF_HEATMAP_LAYER,
+    type: "heatmap",
+    source: RF_HEATMAP_SOURCE,
+    layout: { visibility: "none" },
+    paint: {
+      "heatmap-weight": ["interpolate", ["linear"], ["get", "weight"], 0, 0, 1, 0.4, 20, 1],
+      "heatmap-intensity": 1,
+      "heatmap-radius": 36,
+      "heatmap-opacity": 0.75,
+    },
+  } as unknown as LayerSpecification;
 }
 
 /**

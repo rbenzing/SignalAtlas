@@ -1,6 +1,11 @@
 import { describe, it, expect } from "vitest";
-import { aircraftToGeoJSON, emittersToGeoJSON, collectFitCoordinates } from "./rfmap";
-import type { Device, Emitter } from "../api";
+import {
+  aircraftToGeoJSON,
+  emittersToGeoJSON,
+  collectFitCoordinates,
+  heatmapCellsToGeoJSON,
+} from "./rfmap";
+import type { Device, Emitter, HeatmapCell } from "../api";
 
 function device(over: Partial<Device>): Device {
   return {
@@ -30,6 +35,37 @@ describe("aircraftToGeoJSON", () => {
     expect(fc.features).toHaveLength(1);
     expect(fc.features[0].properties.id).toBe("A");
     expect(fc.features[0].geometry.coordinates).toEqual([3.91937, 52.2572]);
+  });
+});
+
+describe("heatmapCellsToGeoJSON", () => {
+  const cell = (over: Partial<HeatmapCell>): HeatmapCell => ({
+    lat: 42.36,
+    lon: -71.06,
+    count: 5,
+    ...over,
+  });
+
+  it("maps each density cell to a [lon,lat] point weighted by its count", () => {
+    const fc = heatmapCellsToGeoJSON([cell({ lat: 42.36, lon: -71.06, count: 7 })]);
+    expect(fc.features).toHaveLength(1);
+    expect(fc.features[0].geometry.coordinates).toEqual([-71.06, 42.36]);
+    expect(fc.features[0].properties.count).toBe(7);
+    expect(fc.features[0].properties.weight).toBe(7);
+  });
+
+  it("floors the weight at 1 so a single-observation cell still renders", () => {
+    const fc = heatmapCellsToGeoJSON([cell({ count: 0 })]);
+    expect(fc.features[0].properties.weight).toBe(1);
+  });
+
+  it("skips cells whose coordinates are not finite", () => {
+    const fc = heatmapCellsToGeoJSON([
+      cell({ lat: Number.NaN, lon: -71.06 }),
+      cell({ lat: 42.36, lon: Number.POSITIVE_INFINITY }),
+      cell({ lat: 42.36, lon: -71.06 }),
+    ]);
+    expect(fc.features).toHaveLength(1);
   });
 });
 

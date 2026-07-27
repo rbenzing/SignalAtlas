@@ -112,7 +112,7 @@ deferred) · ○ not started.
 | M2 | Protocol + confidence + evidence | ✅ | Rule scorer (`SignalAtlas.Classification`). |
 | M3 | All-protocol decode → devices w/ vendor | ◑ | Decoders operate on **frame bytes**; per-protocol IQ→bits demod deferred except **ADS-B** (live `AdsBDemodulator`) and **NOAA APT** (`AptDecoder`). |
 | M4 | Emitters via decoded IDs (+RF fallback) | ✅ | Correlation runs RF-only for non-demodulated live protocols. |
-| M5 | RF Map: heatmap + honest uncertainty | ✅ | Map + uncertainty + ADS-B contacts + NOAA weather overlay; **`GET /map/heatmap`** now exposed (GeolocationEngine wired, audit #14). |
+| M5 | RF Map: heatmap + honest uncertainty | ✅ | Map + uncertainty + ADS-B contacts + NOAA weather overlay; **`GET /map/heatmap`** exposed (GeolocationEngine wired, audit #14) **and consumed** by the RF Map Heatmap toggle — the overlay now renders server observation-density cells, not the old emitter-only client heatmap. |
 | M6 | Behavior profiles; timeline replay | ◑ | `BehaviorEngine` built + tested but **not DI-wired** (staged seam, audit #14 — needs per-emitter sighting history); `/replay` endpoint deferred. |
 | M7 | Alerts (incl. new_device) + `/summary` | ✅ | Alerts view + `/summary`. |
 | M8 | Real HackRF/GPS; retention; sync; backup/export; NFR soak; degrade | ◑ | **Browser WebUSB HackRF** ingress built (`/ingest/iq`); native SoapySDR source, `/sync/*`, `/export`, soak/NFR suites deferred (need device + Docker host). |
