@@ -32,9 +32,14 @@ export default function ConnectionDot() {
 
   const label = `${hubLabel} · API ${apiOnline ? "online" : "unreachable"}`;
 
+  // a11y: `aria-label` is PROHIBITED on a bare div (no role), so the label was silently dropped and
+  // connection state was conveyed by colour alone with no accessible equivalent — a Lighthouse
+  // `aria-prohibited-attr` failure. `role="status"` makes the name valid AND announces transitions
+  // (hub drops to polling, API goes unreachable), which a monitoring tool has to surface non-visually.
   return (
     <Tooltip title={label}>
       <Box
+        role="status"
         aria-label={label}
         sx={{ width: 10, height: 10, borderRadius: "50%", bgcolor: color, flexShrink: 0 }}
       />

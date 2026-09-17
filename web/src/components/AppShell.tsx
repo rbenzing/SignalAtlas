@@ -11,6 +11,7 @@ import ListItemButton from "@mui/material/ListItemButton";
 import ListItemIcon from "@mui/material/ListItemIcon";
 import ListItemText from "@mui/material/ListItemText";
 import IconButton from "@mui/material/IconButton";
+import Tooltip from "@mui/material/Tooltip";
 import useMediaQuery from "@mui/material/useMediaQuery";
 import { useTheme } from "@mui/material/styles";
 import DashboardIcon from "@mui/icons-material/Dashboard";
@@ -59,17 +60,38 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
         const disabled = Boolean(item.mapOnly) && !mapEnabled;
         return (
           <ListItem key={item.path} disablePadding>
-            <ListItemButton
-              // Disabled: render as a plain (non-navigable) button — no RouterLink/`to`, so it
-              // can't be reached by click or keyboard while the tuned band has no mapping use.
-              {...(disabled ? {} : { component: RouterLink, to: item.path })}
-              disabled={disabled}
-              selected={location.pathname === item.path}
-              onClick={() => setMobileOpen(false)}
+            <Tooltip
+              title={disabled ? "Available when tuned to a mapping band (e.g. ADS-B 1090 MHz)" : ""}
+              disableHoverListener={!disabled}
             >
-              <ListItemIcon sx={{ minWidth: 40 }}>{item.icon}</ListItemIcon>
-              <ListItemText primary={item.label} />
-            </ListItemButton>
+              {/*
+                Unavailable items stay FOCUSABLE. `disabled` removes them from the tab order, so a
+                keyboard or screen-reader user could never reach the control to learn WHY it is
+                unavailable. `aria-disabled` conveys the same state while keeping it reachable, and
+                the tooltip (shown on focus as well as hover) supplies the reason. Navigation is
+                still suppressed by omitting RouterLink/`to`.
+              */}
+              <ListItemButton
+                {...(disabled ? {} : { component: RouterLink, to: item.path })}
+                aria-disabled={disabled || undefined}
+                selected={location.pathname === item.path}
+                onClick={() => !disabled && setMobileOpen(false)}
+                sx={{
+                  ...(disabled && { opacity: 0.5, cursor: "not-allowed" }),
+                  // a11y (WCAG 1.4.11): the default focus style here was a 12% white wash measuring
+                  // ~1.27:1 against the sidebar — well under the 3:1 minimum, and nearly identical
+                  // to the `selected` background, so focus and selection were indistinguishable.
+                  "&.Mui-focusVisible": {
+                    outline: "2px solid",
+                    outlineColor: "primary.main",
+                    outlineOffset: "-2px",
+                  },
+                }}
+              >
+                <ListItemIcon sx={{ minWidth: 40 }}>{item.icon}</ListItemIcon>
+                <ListItemText primary={item.label} />
+              </ListItemButton>
+            </Tooltip>
           </ListItem>
         );
       })}
