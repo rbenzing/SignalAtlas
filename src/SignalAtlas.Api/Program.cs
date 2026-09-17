@@ -482,10 +482,14 @@ static IResult SetEnrichmentStatus(Guid id, string status, IEnrichmentRepository
 // Emitters (SPEC §9.2 GET /emitters): enveloped + paginated like /signals, backed by
 // IEmitterRepository. Each emitter carries the location estimate + uncertainty + protocol +
 // identifiers + evidence the RF Map needs to plot markers and uncertainty circles (SPEC §8.6).
-api.MapGet("/emitters", IResult (IEmitterRepository repo, HttpContext ctx) =>
+api.MapGet("/emitters", IResult (IEmitterRepository repo, IAuditLog audit, HttpContext ctx) =>
 {
     if (!Pagination.TryResolve(ctx, out var page, out var error))
         return error!;
+
+    // NFR-S2: emitters carry BOTH identifiers and an estimated position, so this is an
+    // identifier/location read and must leave an audit trail (SOC 2 CC7.2).
+    audit.Record("local-operator", "read:emitters", ctx.Request.QueryString.Value ?? string.Empty);
 
     var raw = repo.All().Skip(page.Offset).Take(page.Limit + 1).ToList();
     var hasMore = raw.Count > page.Limit;
@@ -499,8 +503,12 @@ api.MapGet("/emitters", IResult (IEmitterRepository repo, HttpContext ctx) =>
 });
 
 // A single emitter by id (SPEC §9.2 GET /emitters/{id}): 404 RFC 7807 problem-details when missing.
-api.MapGet("/emitters/{id}", IResult (string id, IEmitterRepository repo, HttpContext ctx) =>
+api.MapGet("/emitters/{id}", IResult (string id, IEmitterRepository repo, IAuditLog audit, HttpContext ctx) =>
 {
+    // NFR-S2: logged BEFORE the 404 check — an attempt to read a specific emitter's identity is
+    // itself the auditable event, whether or not the record exists.
+    audit.Record("local-operator", "read:emitter", id);
+
     var emitter = repo.All().FirstOrDefault(e => string.Equals(e.Id, id, StringComparison.Ordinal));
     if (emitter is null)
         return Results.Problem(
@@ -600,9 +608,12 @@ api.MapGet("/spectrum/coverage", (ISpectrumBuffer buffer, ISignalRepository sign
 // Geospatial heatmap (SPEC §9.2 /map/heatmap, §8.6): buckets recent POSITIONED observations into a
 // regular lat/lon grid via the honest GeolocationEngine (never a false point fix). Cell size in degrees
 // via ?cell= (default ~0.01° ≈ 1 km). #8: the observation read is bounded. Unpositioned obs are ignored.
-api.MapGet("/map/heatmap", (GeolocationEngine geo, IObservationRepository observations, HttpContext ctx) =>
+api.MapGet("/map/heatmap", (GeolocationEngine geo, IObservationRepository observations, IAuditLog audit, HttpContext ctx) =>
 {
     const int ObservationCap = 5000;
+
+    // NFR-S2: this endpoint returns positions derived from observations — a location read.
+    audit.Record("local-operator", "read:map-heatmap", ctx.Request.QueryString.Value ?? string.Empty);
     double cell = double.TryParse(
         ctx.Request.Query["cell"], NumberStyles.Float, CultureInfo.InvariantCulture, out var c) && c > 0.0
         ? c : 0.01;
