@@ -1,0 +1,25 @@
+<Project>
+
+  <!--
+    Single source of truth for the product version across all 15 src/ projects plus the test
+    projects. Before this file every .csproj inherited the SDK default (1.0.0), so shipped
+    assemblies reported a version unrelated to the released tag — `v1.0` was the only versioning
+    signal in the repo and nothing in the build knew about it.
+
+    VersionPrefix drives Version, AssemblyVersion, FileVersion and the NuGet package version.
+    AssemblyVersion is pinned to the MAJOR only (2.0.0.0) so patch/minor releases stay
+    binary-compatible and do not force assembly-binding redirects; FileVersion/InformationalVersion
+    carry the precise build for diagnostics.
+
+    Bump VersionPrefix here (and web/package.json, which npm requires to be full x.y.z semver) when
+    cutting a release, then tag to match — see CHANGELOG.md.
+  -->
+  <PropertyGroup>
+    <VersionPrefix>2.0.0</VersionPrefix>
+    <AssemblyVersion>2.0.0.0</AssemblyVersion>
+    <Product>Signal Atlas</Product>
+    <Company>Signal Atlas</Company>
+    <Description>Receive-only RF intelligence platform: SDR capture, classification, device decode, correlation, geolocation and behaviour analysis.</Description>
+  </PropertyGroup>
+
+</Project>
