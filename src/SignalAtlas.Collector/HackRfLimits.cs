@@ -23,6 +23,23 @@ public static class HackRfLimits
     public const int MinBasebandBwHz = 1_750_000;
     public const int MaxBasebandBwHz = 28_000_000;
 
+    /// <summary>
+    /// The baseband filter widths the HackRF's MAX2837 can actually select, ascending. The filter is
+    /// NOT continuously tunable: these 16 values are the whole set, and libhackrf's
+    /// <c>hackrf_compute_baseband_filter_bw</c> snaps a request down to one of them.
+    /// <para>
+    /// This must stay in step with <c>VALID_BASEBAND_BW</c> in <c>web/src/sdr/hackrf.ts</c> — the
+    /// browser is the other implementation of the same radio, and a mismatch means the passband we
+    /// RECORD differs from the one the hardware is RUNNING. That matters because this value is
+    /// persisted as <c>Observation.BandwidthHz</c>, documented as the true analog passband.
+    /// </para>
+    /// </summary>
+    public static readonly int[] SupportedBasebandBwHz =
+    [
+        1_750_000, 2_500_000, 3_500_000, 5_000_000, 5_500_000, 6_000_000, 7_000_000, 8_000_000,
+        9_000_000, 10_000_000, 12_000_000, 14_000_000, 15_000_000, 20_000_000, 24_000_000, 28_000_000,
+    ];
+
     public static bool IsValidFrequencyHz(long hz) => hz >= MinFrequencyHz && hz <= MaxFrequencyHz;
 
     public static bool IsValidSampleRateHz(int hz) => hz >= MinSampleRateHz && hz <= MaxSampleRateHz;
@@ -31,7 +48,12 @@ public static class HackRfLimits
 
     public static bool IsValidVgaDb(int db) => db >= MinVgaDb && db <= MaxVgaDb && db % VgaStepDb == 0;
 
-    public static bool IsValidBasebandBwHz(int hz) => hz >= MinBasebandBwHz && hz <= MaxBasebandBwHz;
+    /// <summary>
+    /// True only for a width the radio can actually select. A plain range check used to accept any
+    /// value in 1.75-28 MHz, so an unsupported width (13 MHz, 2.4 MHz…) passed validation and was
+    /// then recorded as the analog passband while the hardware ran a different filter.
+    /// </summary>
+    public static bool IsValidBasebandBwHz(int hz) => Array.IndexOf(SupportedBasebandBwHz, hz) >= 0;
 
     /// <summary>RF amp enable is a boolean (0/+14 dB) so only the LNA/VGA stages need range checks.</summary>
     public static bool IsValidGain(RxGain gain) => IsValidLnaDb(gain.LnaDb) && IsValidVgaDb(gain.VgaDb);
@@ -91,8 +113,24 @@ public static class HackRfLimits
     /// <summary>Clamps a sample rate into the valid HackRF range.</summary>
     public static int ClampSampleRateHz(int hz) => Math.Clamp(hz, MinSampleRateHz, MaxSampleRateHz);
 
-    /// <summary>Clamps a baseband filter bandwidth into the valid HackRF range.</summary>
-    public static int ClampBasebandBwHz(int hz) => Math.Clamp(hz, MinBasebandBwHz, MaxBasebandBwHz);
+    /// <summary>
+    /// Snaps a requested baseband bandwidth to the widest supported filter that does not exceed it
+    /// (and to the narrowest filter when the request is below the minimum) — the same rule as
+    /// libhackrf and the browser client, so both paths land on the same passband. Rounding DOWN
+    /// never admits more spectrum than the caller asked for.
+    /// </summary>
+    public static int ClampBasebandBwHz(int hz)
+    {
+        if (hz >= MaxBasebandBwHz) return MaxBasebandBwHz;
+
+        var best = SupportedBasebandBwHz[0];
+        foreach (var bw in SupportedBasebandBwHz)
+        {
+            if (bw > hz) break;
+            best = bw;
+        }
+        return best;
+    }
 
     /// <summary>Clamps each gain stage independently into its valid range, rounding LNA/VGA down to the
     /// nearest step at or below the requested value (never exceeds the requested dB).</summary>
