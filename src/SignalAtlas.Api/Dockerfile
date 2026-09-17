@@ -16,6 +16,11 @@ COPY --from=build /app/publish .
 EXPOSE 8080
 ENV ASPNETCORE_HTTP_PORTS=8080
 
+# Drop root (OWASP A05 / SOC 2 CC6.1). The image previously ran as root, so a process escape had
+# root in the container. The aspnet base image ships a non-root `app` (uid 1654) — the published
+# output is read-only at runtime, so nothing here needs write access.
+USER app
+
 # OPTIONAL field-hardware note: to use a real HackRF over USB from inside the container, run with
 # USB passthrough — `docker run --device=/dev/bus/usb ...` or add a compose `devices:` mapping
 # (see docker-compose.yml). Without it the API falls back to the file/synthetic sample source.

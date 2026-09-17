@@ -129,10 +129,18 @@ export default function Dashboard() {
   return (
     <Box sx={{ display: "flex", flexDirection: "column", gap: 3 }}>
       <Box sx={{ display: "flex", gap: 2, flexWrap: "wrap" }}>
-        <StatTile label="Signals" value={signals.length || (summary.data?.signalCount ?? "—")} />
+        {/*
+          Counts come straight from the live-merged store, which is ALWAYS an array (hub push with a
+          polling fallback seeds it), so `.length` is always a real number — including a legitimate 0.
+          Do NOT reintroduce `count || "—"`: `0` is falsy in JS, so that rendered a successful
+          "zero emitters" as the em-dash placeholder, i.e. it reported a known-zero as "unavailable"
+          on the very first screen of a default (unseeded) install. `deviceCount` is the one value
+          with no live feed, so it keeps `?? "—"` — that dash means genuinely unavailable.
+        */}
+        <StatTile label="Signals" value={signals.length} />
         <StatTile label="Devices" value={summary.data?.deviceCount ?? "—"} />
-        <StatTile label="Emitters" value={emitters.length || "—"} />
-        <StatTile label="Alerts" value={alerts.length || (summary.data?.alertCount ?? "—")} />
+        <StatTile label="Emitters" value={emitters.length} />
+        <StatTile label="Alerts" value={alerts.length} />
       </Box>
 
       <Grid container spacing={3}>

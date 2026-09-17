@@ -138,10 +138,13 @@ public class IqIngressEndpointTests(WebApplicationFactory<Program> factory)
             collectorId = "web-hackrf-test",
         });
         await ws.SendAsync(Encoding.UTF8.GetBytes(config), WebSocketMessageType.Text, true, CancellationToken.None);
-        await Task.Delay(200); // let the handler run OnDeviceStreamStarted()
 
-        Assert.Equal(0, await GetPayloadCount(client, "/api/v1/emitters"));
-        Assert.Equal(0, await GetPayloadCount(client, "/api/v1/devices"));
+        // The handler runs OnDeviceStreamStarted() on its own receive loop — SendAsync above gives no
+        // happens-before edge, so poll for the clear rather than sleeping a fixed 200 ms and hoping.
+        await WaitForCountAsync(client, "/api/v1/emitters", c => c == 0,
+            "a live stream must clear the demo-seeded emitters");
+        await WaitForCountAsync(client, "/api/v1/devices", c => c == 0,
+            "a live stream must clear the demo-seeded devices");
 
         await ws.CloseAsync(WebSocketCloseStatus.NormalClosure, "done", CancellationToken.None);
     }
@@ -150,6 +153,55 @@ public class IqIngressEndpointTests(WebApplicationFactory<Program> factory)
     {
         using var doc = JsonDocument.Parse(await (await client.GetAsync(path)).Content.ReadAsStringAsync());
         return doc.RootElement.GetProperty("payload").GetArrayLength();
+    }
+
+    /// <summary>How long a condition-based wait will keep polling before failing the test.</summary>
+    private static readonly TimeSpan ConditionTimeout = TimeSpan.FromSeconds(5);
+
+    private static readonly TimeSpan PollInterval = TimeSpan.FromMilliseconds(10);
+
+    /// <summary>
+    /// Polls <paramref name="path"/> until its payload count satisfies <paramref name="predicate"/>.
+    /// <para>
+    /// WHY THIS EXISTS: <c>ws.SendAsync(...)</c> only completes the CLIENT-side write. The server
+    /// consumes config frames on its own <c>ReceiveAsync</c> loop in
+    /// <see cref="SignalAtlas.Api"/>'s <c>/ingest/iq</c> handler, so there is NO happens-before edge
+    /// between sending a frame and the server acting on it. Sleeping a fixed <c>Task.Delay(150)</c>
+    /// and asserting was a race: it failed ~1 run in 12 under CI-like parallelism (4 cores), which
+    /// is what broke the pipeline. Poll for the effect with a generous ceiling instead — that is
+    /// fast when the server is quick and still correct when a loaded runner makes it slow.
+    /// </para>
+    /// </summary>
+    private static async Task WaitForCountAsync(
+        System.Net.Http.HttpClient client, string path, Func<int, bool> predicate, string because)
+    {
+        var sw = System.Diagnostics.Stopwatch.StartNew();
+        var count = await GetPayloadCount(client, path);
+        while (!predicate(count))
+        {
+            if (sw.Elapsed > ConditionTimeout)
+                Assert.Fail(
+                    $"Timed out after {ConditionTimeout.TotalSeconds:0.#}s waiting on {path}: {because}. Last count: {count}.");
+            await Task.Delay(PollInterval);
+            count = await GetPayloadCount(client, path);
+        }
+    }
+
+    /// <summary>
+    /// Asserts the payload count at <paramref name="path"/> stays &gt; 0 for a short settling window.
+    /// Used for "this must NOT be cleared" checks, where polling for a change cannot help. It cannot
+    /// prove the server already consumed the frame (no ack exists), so it is a regression guard
+    /// against an over-eager clear rather than a strict ordering proof — its failure mode is a false
+    /// PASS under extreme scheduling delay, never a false failure.
+    /// </summary>
+    private static async Task AssertStaysPopulatedAsync(
+        System.Net.Http.HttpClient client, string path, string because)
+    {
+        for (var i = 0; i < 10; i++)
+        {
+            Assert.True(await GetPayloadCount(client, path) > 0, because);
+            await Task.Delay(PollInterval);
+        }
     }
 
     private static string ConfigFrame(long centerFreqHz, int? vgaDb = null) => JsonSerializer.Serialize(new
@@ -177,12 +229,18 @@ public class IqIngressEndpointTests(WebApplicationFactory<Program> factory)
         using var ws = await wsClient.ConnectAsync(uri, CancellationToken.None);
 
         // Initial config frame (center A). This is the ONE-TIME trigger for
-        // ILiveSession.OnDeviceStreamStarted(), which clears any IDemoSeedStore data (SeedDemoData is
-        // off by default here, so it's a no-op) — so we deliberately seed the transient stores + a
-        // device AFTER this frame, not before, or that unrelated one-time clear would wipe them first.
+        // ILiveSession.OnDeviceStreamStarted(), which clears every IDemoSeedStore.
         await ws.SendAsync(Encoding.UTF8.GetBytes(ConfigFrame(915_000_000L)),
             WebSocketMessageType.Text, true, CancellationToken.None);
-        await Task.Delay(150);
+
+        // Latch that one-time clear DETERMINISTICALLY before seeding below. LiveSession latches via
+        // Interlocked, so whichever call arrives first wins and the other is a no-op — calling it
+        // here guarantees the handler's own call cannot fire AFTER our seeding and wipe it.
+        //
+        // This replaces a Task.Delay(150) that merely HOPED the handler had got there first. It had
+        // not, roughly 1 run in 12 under CI-like parallelism: the late clear deleted the emitter
+        // seeded below and the first assertion saw 0. That was the CI failure on run 30231481804.
+        app.Services.GetRequiredService<SignalAtlas.Persistence.ILiveSession>().OnDeviceStreamStarted();
 
         // Land data in every transient store directly via the shared singleton repos (mirrors how
         // the live pipeline would populate them during the first band's capture), plus a device to
@@ -222,22 +280,22 @@ public class IqIngressEndpointTests(WebApplicationFactory<Program> factory)
         // Same-center config frame (gain-only change): must NOT clear anything.
         await ws.SendAsync(Encoding.UTF8.GetBytes(ConfigFrame(915_000_000L, vgaDb: 30)),
             WebSocketMessageType.Text, true, CancellationToken.None);
-        await Task.Delay(150);
 
-        Assert.True(await GetPayloadCount(client, "/api/v1/emitters") > 0, "gain-only config frame cleared data");
-        Assert.True(await GetPayloadCount(client, "/api/v1/signals") > 0);
-        Assert.True(await GetPayloadCount(client, "/api/v1/alerts") > 0);
-        Assert.True(await GetPayloadCount(client, "/api/v1/spectrum/frames") > 0);
+        // "Must not happen" cannot be polled for, so hold briefly and assert it stays populated.
+        await AssertStaysPopulatedAsync(client, "/api/v1/emitters", "gain-only config frame cleared data");
+        await AssertStaysPopulatedAsync(client, "/api/v1/signals", "gain-only config frame cleared signals");
+        await AssertStaysPopulatedAsync(client, "/api/v1/alerts", "gain-only config frame cleared alerts");
+        await AssertStaysPopulatedAsync(client, "/api/v1/spectrum/frames", "gain-only config frame cleared spectrum");
 
-        // Retune to a DIFFERENT center: transient data must clear, devices must survive.
+        // Retune to a DIFFERENT center: transient data must clear, devices must survive. The handler
+        // clears on its own receive loop, so poll for each store to drain instead of sleeping 150 ms.
         await ws.SendAsync(Encoding.UTF8.GetBytes(ConfigFrame(433_920_000L)),
             WebSocketMessageType.Text, true, CancellationToken.None);
-        await Task.Delay(150);
 
-        Assert.Equal(0, await GetPayloadCount(client, "/api/v1/emitters"));
-        Assert.Equal(0, await GetPayloadCount(client, "/api/v1/signals"));
-        Assert.Equal(0, await GetPayloadCount(client, "/api/v1/alerts"));
-        Assert.Equal(0, await GetPayloadCount(client, "/api/v1/spectrum/frames"));
+        await WaitForCountAsync(client, "/api/v1/emitters", c => c == 0, "a retune must clear emitters");
+        await WaitForCountAsync(client, "/api/v1/signals", c => c == 0, "a retune must clear signals");
+        await WaitForCountAsync(client, "/api/v1/alerts", c => c == 0, "a retune must clear alerts");
+        await WaitForCountAsync(client, "/api/v1/spectrum/frames", c => c == 0, "a retune must clear spectrum frames");
         Assert.True(await GetPayloadCount(client, "/api/v1/devices") > 0, "devices must NOT be cleared on retune");
 
         await ws.CloseAsync(WebSocketCloseStatus.NormalClosure, "done", CancellationToken.None);

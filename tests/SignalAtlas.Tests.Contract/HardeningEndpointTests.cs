@@ -200,6 +200,41 @@ public class HardeningEndpointTests(WebApplicationFactory<Program> factory)
         Assert.Contains(entries, e => e.Action == "read:devices" && e.Actor == "local-operator");
     }
 
+    // NFR-S2 says EVERY identifier/location read is audit-logged. /emitters returns both
+    // `identifiers` AND `estLatitude`/`estLongitude`, and /map/heatmap returns positions — but
+    // neither was logged, so the two endpoints that expose emitter identity and geolocation left no
+    // audit trail at all (SOC 2 CC7.2: access to sensitive data must be recorded).
+    [Theory]
+    [InlineData("/api/v1/emitters", "read:emitters")]
+    [InlineData("/api/v1/map/heatmap", "read:map-heatmap")]
+    public async Task IdentifierAndLocationReads_WriteAuditEntries(string path, string expectedAction)
+    {
+        var testFactory = _factory.WithWebHostBuilder(_ => { });
+        var client = testFactory.CreateClient();
+
+        await client.GetAsync(path);
+
+        var audit = testFactory.Services.GetRequiredService<IAuditLog>();
+        Assert.Contains(
+            audit.Recent(50),
+            e => e.Action == expectedAction && e.Actor == "local-operator");
+    }
+
+    // A single emitter read exposes that emitter's identifiers + estimated position — same rule.
+    [Fact]
+    public async Task SingleEmitterRead_WritesAuditEntry()
+    {
+        var testFactory = _factory.WithWebHostBuilder(_ => { });
+        var client = testFactory.CreateClient();
+
+        await client.GetAsync("/api/v1/emitters/emitter-does-not-exist");
+
+        var audit = testFactory.Services.GetRequiredService<IAuditLog>();
+        Assert.Contains(
+            audit.Recent(50),
+            e => e.Action == "read:emitter" && e.Actor == "local-operator");
+    }
+
     private sealed class ThrowingSignalRepository(string secret) : ISignalRepository
     {
         public IReadOnlyList<Signal> GetSignals(int limit = 100) =>

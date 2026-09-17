@@ -70,6 +70,11 @@ export default function Analyst() {
           <TextField
             fullWidth
             size="small"
+            // a11y: a placeholder is NOT a label — it disappears on first keystroke and screen-reader
+            // support for using it as the accessible name is inconsistent (WCAG 3.3.2 / 4.1.2).
+            // Give the field a real name and keep the placeholder as the worked example.
+            label="Ask the spectrum"
+            aria-label="Ask the spectrum a question about signals, devices, emitters, or alerts"
             placeholder="Ask about signals, devices, emitters, or alerts…"
             value={input}
             onChange={(e) => setInput(e.target.value)}
@@ -96,7 +101,13 @@ export default function Analyst() {
           </Typography>
         )}
 
-        <Stack spacing={1.5}>
+        {/*
+          a11y: answers arrive asynchronously, so without a live region a screen-reader user presses
+          Send and hears nothing at all — they would have to hunt for the result manually. `polite`
+          waits for a pause rather than interrupting; `aria-busy` covers the in-flight gap so the
+          pending state is perceivable too.
+        */}
+        <Stack spacing={1.5} role="status" aria-live="polite" aria-busy={loading}>
           {turns.map((turn, i) => (
             <Box
               key={i}

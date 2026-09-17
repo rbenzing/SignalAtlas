@@ -6,7 +6,10 @@ services:
   db:
     image: timescale/timescaledb:latest-pg16
     environment:
-      POSTGRES_PASSWORD: signalatlas
+      # Credential comes from the environment (or a .env file); the old hardcoded literal meant every
+      # deployment of this repo shared one known password (SOC 2 CC6.1). The fallback keeps `up`
+      # working for a local throwaway DB — override POSTGRES_PASSWORD for anything that persists.
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-signalatlas-local-dev-only}
       POSTGRES_DB: signalatlas
     volumes:
       - signalatlas-data:/var/lib/postgresql/data
@@ -24,9 +27,14 @@ services:
       db:
         condition: service_healthy
     environment:
-      ConnectionStrings__SignalAtlas: "Host=db;Database=signalatlas;Username=postgres;Password=signalatlas"
+      ConnectionStrings__SignalAtlas: "Host=db;Database=signalatlas;Username=postgres;Password=${POSTGRES_PASSWORD:-signalatlas-local-dev-only}"
     ports:
-      - "8080:8080"
+      # Bind to LOOPBACK only. `"8080:8080"` publishes on 0.0.0.0, which put the whole API — plus the
+      # deliberately un-gated /ingest/iq WebSocket and /hub/live — on every host interface with NO
+      # authentication, because IAuthorizationGate ships as SingleOperatorPassThroughGate
+      # (Authorize() => true). That contradicted the single-operator loopback posture the SPEC
+      # (§4.7, ADR-2) assumes. Anyone needing LAN access must add real auth first (ADR-9 RBAC).
+      - "127.0.0.1:8080:8080"
     # OPTIONAL field-hardware: to give the container a USB-connected HackRF, uncomment:
     # devices:
     #   - "/dev/bus/usb:/dev/bus/usb"

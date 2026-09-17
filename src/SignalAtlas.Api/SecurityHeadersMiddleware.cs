@@ -18,6 +18,12 @@ public sealed class SecurityHeadersMiddleware(RequestDelegate next)
             headers["X-Content-Type-Options"] = "nosniff";
             headers["X-Frame-Options"] = "DENY";
             headers["Referrer-Policy"] = "no-referrer";
+            // Defence-in-depth against injected script (OWASP A03/A05). The API serves JSON, not
+            // markup, so it can afford the strictest possible policy: deny everything and forbid
+            // framing. This covers the analyst/enhancement paths, which render model- and
+            // decoder-derived strings. NOTE: this middleware guards the API only — the SPA is served
+            // by Vite/your static host, which needs its own (necessarily looser) CSP.
+            headers["Content-Security-Policy"] = "default-src 'none'; frame-ancestors 'none'";
             return Task.CompletedTask;
         }, context);
 
